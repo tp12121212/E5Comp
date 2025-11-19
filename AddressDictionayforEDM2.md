@@ -1,70 +1,67 @@
-# キーワード辞書でワード マッチにおけるワードブレークのずれに対処する
-キーワード辞書に[先のページ](https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM.md)で作成したキーワード辞書を登録しても、本文中から検知しない住所が存在します。これは、住所において町域等の後に数字で丁番号が続くことが一般的に想定されますが、これらの丁番号が続くか続かないかによって、ワードブレークの位置がずれてしまうケースがあるためです。
+# Addressing word-break offsets in word matching with a keyword dictionary
+Even if you register the keyword dictionary created on the previous page (https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM.md) in your keyword dictionary, there will still be addresses in the text that are not detected. This is because, while it is generally assumed that a block number follows the town area in an address, the word-break position can be offset depending on whether or not the block number is included.
 
-## 丁番号有無によるワードブレークのずれ
-例キーワード辞書に登録した文字列   
-Ⓐ愛知県一宮市川田町  
-   
-本文中の住所例   
-Ⓑ愛知県一宮市川田町1   
-Ⓒ愛知県一宮市川田町1-2-3   
-Ⓓ愛知県一宮市川田町であるが   
-   
-これらは、それぞれ以下のようなワードブレークが実施されます。   
-Ⓐ’愛知 県 一宮 市川 田 町   
-Ⓑ'愛知 県 一宮 市 川田 町 1   
-Ⓒ'愛知 県 一宮 市川 田町 1 2 3   
-Ⓓ'愛知 県 一宮 市 川 田 町 で ある が
+## Word-break offsets due to the presence or absence of a block number
+Example: String registered in a keyword dictionary
+Ⓐ Kawada-cho, Ichinomiya City, Aichi Prefecture
 
-上記のケースでは、Ⓐ'Ⓑ'Ⓒ'Ⓓ'それぞれで、異なるワード ブレークがなされており、ワード マッチの動作となるキーワード辞書においては、
-Ⓐの文字列をキーワード辞書登録しても、本文中のⒷ,Ⓒ,Ⓓからは、Ⓐのワードを検出できないという現象が発生します。    
+Example address in the text
+Ⓑ Kawada-cho 1, Ichinomiya City, Aichi Prefecture
+Ⓒ 1-2-3 Kawada-cho, Ichinomiya City, Aichi Prefecture
+Ⓓ Kawada-cho, Ichinomiya City, Aichi Prefecture
 
-カスタムのアプリによるワードブレーク動作の結果   
-(ワード ブレークを検証するためにはアプリを作成する必要があり、またワードブレークの呼び出しは簡単ではない。)   
+The following word-breaking is performed for each of these.
+A' Kawada-cho, Ichinomiya City, Aichi Prefecture
+B' Kawada-cho, Ichinomiya City, Aichi Prefecture 1
+C' Kawada-cho, Ichinomiya City, Aichi Prefecture 1 2 3
+D' Kawada-cho, Ichinomiya City, Aichi Prefecture, but
+
+In the above case, A', B', C', and D' have different word breaks. Therefore, in a keyword dictionary that uses word matching,
+even if you register the string A in the keyword dictionary, the word A cannot be detected from B, C, and D in the text.
+
+Word-breaking results using a custom app
+(Verifying word-breaking requires creating an app, and calling word-breaking is not easy.)
 ![image](https://github.com/YoshihiroIchinose/E5Comp/assets/66407692/d97f60e4-618c-4d80-a732-f0d2302e0fbc)
 
+## Total word-breaking deviations for addresses identified by postal code
+The following analysis results, using a custom app with Microsoft 365 word breakers, show the amount of word-breaking deviations for addresses identified by postal code created on the previous page. While 85.65% of addresses are consistent regardless of whether or not they have a block number, the remaining 15% or so have different word breaks within the patterns B through D without a block number. In the four-digit determination results below, the numbers from left to right correspond to word breaks A, B, C, and D, respectively. Pattern A is assigned a value of 0, and word breaks B through D are compared with each other. If a common word break pattern appears, the same number is assigned, and new word break patterns are assigned a new number +1. Therefore, if all word breaks A through D match, the result is "0000." If only B differs in the word break, the result is "0100." If A and B have the same pattern but C and D have the same pattern, the result is "0011." If A through D are all different, the result is "0123." The aforementioned Kawada-cho area in Ichinomiya City, Aichi Prefecture, is one of only 35 "0123" patterns out of the 120,000 addresses identified by postal codes nationwide.
 
-
-## 郵便番号で識別される住所のワード ブレークのずれの総計
-[先のページ](https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM.md)で作成した郵便番号で識別される住所で、
-どれくらいのワード ブレークのぶれが発生するかについて、Microsoft 365 のワード ブレーカーを利用したカスタムのアプリによる分析結果では、以下の通りとなります。特に丁番号の有無によらずぶれないものが 85.65% あるものの、残り 15% 弱の住所では、先の丁番号がないⒷ～Ⓓのパターンの中で、ワードブレークが異なるものが存在します。以下の 4 桁の判定結果では、左の数字から順番にⒶ、Ⓑ、Ⓒ、Ⓓのワードブレークに対応していて、Ⓐのパターンを 0 として、以降ⒷからⒹのワードブレークを相互に比較し、共通するワードブレークのパターンが現れる場合には同じ数字を付与し、新しいワードブレークのパターンには新しい +1 の数字を振っています。そのため、Ⓐ～Ⓓでのワードブレークがすべて一致する場合には、「0000」、Ⓑでのみワードブレークが異なる場合には、「0100」、ⒶとⒷのパターンが同じで、それとは異なり、ⒸとⒹが同じパターンの場合、「0011」、Ⓐ～Ⓓが全部異なる場合、「0123」といった表現になります。先の愛知県一宮市川田町は、全国 12 万の郵便番号で識別される住所のうち 35 個しかない「0123」のパターンの一つとなります。
-
-参考: [分析結果のExcel](https://github.com/YoshihiroIchinose/E5Comp/blob/main/WB/%E4%BD%8F%E6%89%80%E8%BE%9E%E6%9B%B8_d_ana_M365.xlsx)
+Reference: [Analysis Results Excel](https://github.com/YoshihiroIchinose/E5Comp/blob/main/WB/%E4%BD%8F%E6%89%80%E8%BE%9E%E6%9B%B8_d_ana_M365.xlsx)
 
 ![image](https://github.com/YoshihiroIchinose/E5Comp/assets/66407692/1041f6d1-ec7d-43e6-a199-b5dbf15ff547)
 
-## キーワード辞書での対処
-15% 弱の住所では、丁番号等の有無によりワード ブレーク位置が異なるバリエーションが存在することになりますが、そういったワード ブレークの位置が異なる
-バリエーションも含めて検知をしたい場合、キーワード辞書に、あらかじめワード ブレークを想定したキーワード登録をします。
-その一つの方法は、検知したいワード単位にキーワードを分割し、前・後ろも含めて"\_"で連携したものを登録しておくことです。
-先の例では、通常の Ⓐ のパターンのフラットな住所の記述に加えて、Ⓑ および Ⓒ を想定した以下の文字列を合わせて登録することになります。
+## Keyword Dictionary Handling
+In just under 15% of addresses, there are variations in word break locations depending on whether or not a block number is included. To detect these variations, you can register keywords that anticipate word breaks in your keyword dictionary.
+One way to do this is to split keywords into the words you want to detect and register them linked with "\_" (before and after).
 
-愛知県一宮市川田町   
-\_愛知_県_一宮_市_川田_町_   
-\_愛知_県_一宮_市川_田町_   
-\_愛知_県_一宮_市_川_田_町_   
+In the previous example, in addition to the standard flat address description of pattern A, you would also register the following string assuming B and C.
 
-なお、上記の文字列は、Word マッチのためにワードブレーク処理がされると"_"が除去され、想定した通りのワードブレークがなされます。
+Aichi Prefecture, Ichinomiya City, Kawada-cho
+\_Aichi_Prefecture_Ichinomiya_City_Kawada_cho_
+\_Aichi_Prefecture_Ichinomiya_City_Kawada_cho_
+\_Aichi_Prefecture_Ichinomiya_City_Kawada_cho_
 
-カスタムのアプリによるワード ブレーク動作の結果   
+Note that when the above string is word-breaked for word matching, the "_" is removed, resulting in the expected word-breaking.
+
+Results of word breaking using a custom app
 ![image](https://github.com/YoshihiroIchinose/E5Comp/assets/66407692/243f7116-0036-46c4-b3fd-a7bb4b20578d)
 
-## Microsoft 365 のワード ブレークのずれを反映させた住所辞書
-[先のページ](https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM.md)で生成した住所辞書を元に、"\_" を挿入する手法で、ワードブレーク位置が異なる住所を追加した日本の住所の辞書が[こちら](https://github.com/YoshihiroIchinose/E5Comp/blob/main/WB/JPAddressDicwithVariations.txt)です。
-この住所辞書は、UTF-16 のエンコードで、3.68MB のサイズとなっていますが、PowerShell で取り込むことで、圧縮後 1MB のキーワード辞書のサイズ制限に収まるものとなります。
+## Address dictionary reflecting Microsoft 365 word breaking offsets
+Based on the address dictionary generated on the previous page, [https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM.md], a Japanese address dictionary has been added with addresses with different word breaking positions by inserting "\_" characters. [Here](https://github.com/YoshihiroIchinose/E5Comp/blob/main/WB/JPAddressDicwithVariations.txt)
+This address dictionary is UTF-16 encoded and 3.68MB in size. However, when imported using PowerShell, it fits within the 1MB keyword dictionary size limit after compression.
 
-## UI を通じたキーワード辞書の更新について
-上記の"\_"で区切る手法を用いて、新規に UI や PowerShell でキーワード辞書を定義する際は問題がないですが、UI で、キーワード辞書を更新することはできません。これは、既存で登録されたキーワードを読み込む際、UI 上では、先の "\_" を削除した文字列が読み込まれて表示されるためで、そのまま更新して保存すると、"\_" で分けたもののも、分けなかったものも、すべて同じ文字列として保存され、ワード ブレークの明示的な指定が失われてしまいます。そのため、こういった辞書を管理する場合には、PowerShell を通じて、辞書全体を更新するような運用が必要となります。
+## About Updating a Keyword Dictionary via the UI
+There is no problem defining a new keyword dictionary in the UI or PowerShell using the "\_" separator method described above, but you cannot update the keyword dictionary via the UI. This is because when loading existing registered keywords, the UI displays the string with the "\_" characters removed. If you update and save the dictionary as is, both the "\_" separator and the unseparated string will be saved as the same string, and the explicit word break specification will be lost. Therefore, when managing such dictionaries, you must update the entire dictionary via PowerShell.
 
-## PowerShell を通じた住所辞書の取り込み
-[Exchange Online PowerShell](https://learn.microsoft.com/ja-jp/powershell/exchange/connect-to-exchange-online-powershell?view=exchange-ps) を用いることで、住所の辞書を以下のような PowerShell のコマンドで取り込むことができます。
+## Importing an Address Dictionary via PowerShell
+Using [Exchange Online PowerShell](https://learn.microsoft.com/ja-jp/powershell/exchange/connect-to-exchange-online-powershell?view=exchange-ps), you can import an address dictionary using the following PowerShell command:
 ```
-Connect-IPPSSession   
+Connect-IPPSSession
 $fileData = [System.IO.File]::ReadAllBytes("C:\WB\JPAddressDicwithVariations.txt")
 
-#新規作成の場合
-New-DlpKeywordDictionary -Name "JPAddress"  -Description "郵便番号ベースの日本の住所" -FileData $fileData
+#To create a new dictionary
+New-DlpKeywordDictionary -Name "JPAddress" -Description "Postal Code-Based Japanese Address" -FileData $fileData
 
-#更新の場合
+#To update a dictionary
 Set-DlpKeywordDictionary -Identity "JPAddress" -FileData $fileData
 ```

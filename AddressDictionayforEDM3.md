@@ -1,67 +1,66 @@
-# キーワード辞書に合わせて EDM で取り込む住所をトリミングする
-EDM の主要素のマッチングにおいては該当の文字列をハッシュ化して比較するため部分一致は行われず、
-前段となる SIT で検知された文字列と、EDM でハッシュ化されて取り込まれる文字列とで、厳密に範囲が一致している必要があります。   
-   
-住所を EDM の主要素として検知したい場合、丁番号の表記ゆれやマンション名の有無などの影響を排除するため、
-住所においては郵便番号で識別される都道府県市区町村町域名までの範囲で一致をみるというのが実装方法の一つとなります。
-(ただし、同じ都道府県市区町村町域名の値を持つ EDM の行が多数存在する場合には、さらに住所を細分化して重複を減らすことが必要となります。)    
-   
-このスクリプトでは、EDM に取り込むデータを下処理するためのもので、[こちらのページ](https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM2.md)で生成した住所のキーワード辞書を元に、
-住所のデータを、キーワード辞書に含まれる都道府県市区町村町域名までにトリミングするものです。ただし、EDM の住所データが別名・表記ゆれ・旧住所体系などにより、キーワード辞書の町域名までの住所を包含していない場合、EDM のデータを空文字で置き換えます。そのため加工後の EDM のデータで、空の住所となっている行があれば、元の該当する行の住所のデータをキーワード辞書にも反映することを考える必要があります。   
-また本スクリプトでは、合わせて[こちらのページ](https://github.com/YoshihiroIchinose/E5Comp/blob/main/EDM_Preprocess.md)で解説しているような、全角英数記号の文字を、半角英数文字に置き換えるデータの標準化も行っています。
+# Trim addresses imported into EDM to match the keyword dictionary
+When matching the main elements of EDM, the corresponding strings are hashed and compared, so partial matches are not performed.
+The string detected in the preceding SIT and the string hashed and imported by EDM must strictly match in range.
 
-## トリミング例　住所データをキーワード辞書に登録されている町域名までの住所に置き換える
-#### EDM の元の住所データ    
-神奈川県横浜市神奈川区片倉1-5-4   
-神奈川県横浜市神奈川区神奈川本町1-2   
+When detecting addresses as the main elements of EDM, one implementation method is to match addresses up to the prefecture, city, ward, town, village, or district name identified by the postal code,
+to eliminate the effects of variations in the spelling of block numbers and the presence or absence of an apartment building name.
+(However, if there are multiple EDM rows with the same prefecture, city, ward, town, or village name value, it will be necessary to further subdivide the addresses to reduce duplication.)
 
-#### キーワード辞書の内容   
-～   
-神奈川県横浜市神奈川区大口通   
-神奈川県横浜市神奈川区大口仲町   
-神奈川県横浜市神奈川区大野町   
-神奈川県横浜市神奈川区片倉   
-神奈川県横浜市神奈川区神奈川  
-神奈川県横浜市神奈川区神奈川本町   
-～   
+This script preprocesses the data to be imported into EDM. It uses the address keyword dictionary generated on [this page](https://github.com/YoshihiroIchinose/E5Comp/blob/main/AddressDictionayforEDM2.md) to trim the address data to the prefecture, city, ward, town, or village name included in the keyword dictionary. However, if the EDM address data does not include the town or village name in the keyword dictionary due to aliases, spelling variations, or old address systems, the EDM data will be replaced with null characters. Therefore, if there are any blank address rows in the processed EDM data, you should consider updating the address data in the original corresponding row in the keyword dictionary.
+This script also standardizes data by replacing full-width alphanumeric characters with half-width alphanumeric characters, as explained on [this page](https://github.com/YoshihiroIchinose/E5Comp/blob/main/EDM_Preprocess.md).
 
-### 変換後の住所データ 
-神奈川県横浜市神奈川区片倉   
-神奈川県横浜市神奈川区神奈川本町
+## Trimming Example: Replacing Address Data with Addresses up to the Street Name Registered in the Keyword Dictionary
+#### Original Address Data from EDM
+1-5-4 Katakura, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+1-2 Kanagawa Honmachi, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
 
-## PowerShell スクリプト
+#### Keyword Dictionary Contents
+~
+Oguchi-dori, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+Oguchi-nakacho, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+Oonomachi, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+Katakura, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+Kanagawa, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+Kanagawa Honmachi, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+~
+
+### Converted Address Data
+Katakura, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+Kanagawa Honmachi, Kanagawa Ward, Yokohama City, Kanagawa Prefecture
+
+## PowerShell Script
 ```
-# EDM で取り込みたい顧客データの CSV ファイル (住所情報は、Address 列とする)
+# CSV file of customer data to be imported into EDM (address information is in the Address (Column)
 $sourceFile="C:\Data\EDMCustomers\CustomeTestData.csv"
-# 変換後の CSV ファイルの出力先
+# Destination for the converted CSV file
 $targetFile = "C:\Data\EDMCustomers\CustomeTestData_Normalized.csv"
-# 住所のキーワード辞書
+# Address keyword dictionary
 $dictionaryFile = "C:\Data\JPAddressDicwithVariations.txt"
 
 Function GetMaximumMatched($text){
-	$prev=""
-	Foreach($d in $dic){
-		Switch($text.CompareTo($d)){
-			1 {If($text.StartsWith($d)){$prev=$d}}
-			0 {return $text}
-			-1{return $prev}
-		}
-	}
-	return $prev
+$prev=""
+Foreach($d in $dic){
+Switch($text.CompareTo($d)){
+1 {If($text.StartsWith($d)){$prev=$d}}
+0 {return $text}
+-1{return $prev}
+}
+}
+return $prev
 }
 
 $dic=Get-Content $dictionaryFile
-# 最長一致を見つけるために、取り込んだ辞書情報をソートしておくことが重要
+# It is important to sort the imported dictionary information to find the longest match.
 $dic = $dic | Sort-Object | Where-Object {$_.StartsWith("_") -eq $false}
 $csv=Import-Csv -Path $sourceFile
 
 Foreach($c in $csv){
-  # 取り込む EDM データの全角英数記号などを半角英数に標準化しておく
-	Foreach($att in $c|get-member|Where-Object{$_.MemberType -eq "NoteProperty"}){
-		$c.($att.Name)=$c.($att.Name).Normalize([System.Text.NormalizationForm]::FormKC)
-	}
-　# Address 列の値をトリミング
-	$c.Address=GetMaximumMatched $c.Address
+# Normalize full-width alphanumeric characters in the imported EDM data to half-width alphanumeric characters.
+Foreach($att in $c|get-member|Where-Object{$_.MemberType -eq "NoteProperty"}){
+$c.($att.Name)=$c.($att.Name).Normalize([System.Text.NormalizationForm]::FormKC)
+}
+# Trim the Address column value.
+$c.Address=GetMaximumMatched $c.Address
 }
 $csv | Export-Csv -Path $targetFile -NoTypeInformation -Encoding unicode
 ```

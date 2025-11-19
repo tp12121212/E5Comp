@@ -1,42 +1,42 @@
-# SharePoint Online のライブラリ単位で DLP を適用・除外する方法
-## 概要
-SharePoint Online に対する DLP の適用では、通常サイト単位で DLP の適用先を指定するため、サイト内のライブラリでは、ライブラリによらず同様の DLP ポリシーが適用されます。ただ、実際の運用の中では、False Positve が多いライブラリだけ DLP の適用を除外したいケースや、特定のライブラリだけで DLP を動作させたいというニーズもあります。ここでは、ライブラリに対する既定の保持ラベルを DLP の条件とすることで、SharePoint Online のサイト内で、ライブラリ単位に DLP の適用や、DLP の適用除外を制御する方法について紹介します。
+# How to Apply or Exclude DLP on a Library-by-Library Basis in SharePoint Online
+## Overview
+When applying DLP to SharePoint Online, you typically specify the site to which DLP applies, meaning that the same DLP policy applies to all libraries within a site. However, in actual operations, there may be cases where you want to exempt DLP from application only to libraries with a high number of false positives, or you want DLP to run only on specific libraries. This article explains how to apply or exempt DLP on a library-by-library basis within a SharePoint Online site by setting the library's default retention label as a DLP condition.
 
-## 前提
-### ライセンス
-SharePoint Online に対する DLP のみであれば、Office 365 E3 や SharePoint Online Plan2 でカバーされる機能ですが、ここでは、ライブラリに対する既定の保持ラベルを利用するため、このサイトを利用するユーザーには、Information Protection & Governance 以上のライセンスも必要となります(Informatino Protection & Governace の前提ライセンスとして、AIP P1 のライセンスも必要。)    
-[参考: 既定の保持ラベルのライセンスについて。](https://learn.microsoft.com/ja-jp/office365/servicedescriptions/microsoft-365-service-descriptions/microsoft-365-tenantlevel-services-licensing-guidance/microsoft-365-security-compliance-licensing-guidance#licensing-for-retention-label-policies)
+## Prerequisites
+### Licensing
+DLP for SharePoint Online alone is covered by Office 365 E3 or SharePoint Online Plan 2. However, because we're using a default retention label for a library, users of this site will also need an Information Protection & Governance license or higher. (An AIP P1 license is also required as a prerequisite for Information Protection & Governance.)
+[Reference: About default retention label licenses.](https://learn.microsoft.com/ja-jp/office365/servicedescriptions/microsoft-365-service-descriptions/microsoft-365-tenantlevel-services-licensing-guidance/microsoft-365-security-compliance-licensing-guidance#licensing-for-retention-label-policies)
 
-### 保持ラベルの動作について 
-1. サイト管理者がライブラリ単位に、サイトに発行された保持ラベルのいずれかを既定の保持ラベルとして設定できる。
-2. ライブラリ内にファイルがアップロードされると、そのファイルにライブラリの既定の保持ラベルが適用される。
-3. 一般の投稿権限のみのユーザーは、ライブラリの既定の保持ラベルは変更できないが、ファイル・フォルダに設定された保持ラベルは変更が可能。
-4. ライブラリ内にフォルダを作成した際、フォルダそのものには、既定の保持ラベルは適用されないが、フォルダに個別の保持ポリシーが設定されていない場合、フォルダ内のコンテンツにも、既定のライブラリの保持ラベルが適用される。
-5. ライブラリ内のフォルダに、保持ラベルを設定した場合、フォルダ配下のファイルの保持ラベルは、フォルダに設定された保持ラベルで置き換わる。
+### How Retention Labels Work
+1. Site administrators can set one of the retention labels published for a site as the default retention label for each library.
+2. When a file is uploaded to a library, the library's default retention label is applied to that file.
+3. Users with general contribution permissions cannot change the library's default retention label, but can change retention labels set for files and folders.
+4. When a folder is created in a library, the default retention label is not applied to the folder itself. However, if the folder does not have an individual retention policy, the default library retention label is also applied to the contents of the folder.
+5. If a retention label is set for a folder in a library, the retention label set for the folder replaces the retention label for the files in the folder.
 
-### DLP の回避について
-DLP の適用有無を保持ラベルで制御するため、以下のような方法で DLP の回避ができてしまい、この方法は DLP による完全なデータ制御を行うものではなく、うっかりミスを防ぐような手立てとして位置づける必要があります。
-1. サイト管理者によるライブラリの設定変更で、サイト内のライブラリの既定の保持ラベルを変更し、DLP の適用を回避できてしまう。
-3. 一旦は既定の保持ラベルの設定に従った DLP の判定は行われるものの、一般のユーザーが、ファイルやフォルダの保持ラベルを変更することで、DLP でブロックされたファイルを、DLP 対象外にすることでブロックを解除できてしまう。
+### About DLP Circumvention
+Whether DLP is applied is controlled by retention labels, so DLP can be circumvented in the following ways. These methods should not be considered complete data control by DLP, but should be viewed as a means to prevent accidental errors.
+1. Site administrators can change the default retention label of a library within a site by changing the library settings, thereby circumventing DLP.
+3. Although DLP initially determines whether a file or folder is blocked based on the default retention label settings, a user can change the retention label of the file or folder to exclude the blocked file from DLP and unblock it.
 
-## 設定手順
-1. Micrsoft Purview ポータルの[データ ライフサイクル管理](https://compliance.microsoft.com/informationgovernance)にアクセスする。    
-    1.A. 特定のライブラリを DLP から除外するケースでは、"共有可能"といった名称で、保持の設定なく、保持ラベルを作成する。    
-    1.B. 特定のライブラリだけを DLP 対象とする場合は、"共有不可"といった名称で、保持の設定なく、保持ラベルを作成する。<img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention01.png"/>    
-     
-2. データ ライフサイクル管理の[ラベル ポリシー](https://compliance.microsoft.com/informationgovernance?viewid=labelpolicies)にて、1 で作成した保持ラベルを、特定の SharePoint Online サイトに発行する。
-    
-3. 2 の操作後、数時間待ち、該当の SharePoint Online サイトのライブラリにアクセスし、右上歯車のメニューから、ライブラリの設定->その他ライブラリの設定に進み、「このリストまたはライブラリ内のアイテムにラベルを適用する」を選択する。    
-    3.A. このライブラリを DLP から除外するケースでは、"共有可能"の保持ラベルを既定の保持ラベルとして設定する。     
-    3.B. このライブラリのみを DLP 対象とする場合は、"共有不可"の保持ラベルを既定の保持ラベルとして設定する。<img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention02.png"/>     
-    
-4. Micrsoft Purview ポータルの[データ損失防止](https://compliance.microsoft.com/datalossprevention?viewid=policies)で、上記の特定の SharePoint Oline サイトを対象とした、DLP ポリシーを作成する。    
-    4.A. DLP のルールで、特定のライブラリを DLP から除外するケースでは、"グループ"を追加し、"条件の追加"から"保持ラベル"を選択し、"共有可能"のラベルを追加する。ルールのグループの "Not" を有効化し、保持ラベルが"共有可能"となっているアイテムを除外する設定とする。その他 DLP の条件も適宜設定する。<img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention03.png"/>     
-    4.B. 特定のライブラリだけを DLP 対象とする場合は、"条件の追加"から"保持ラベル"を選択し、"共有不可"のラベルを追加し、保持ラベルが"共有不可"となっているアイテムのみを対象に設定する。その他 DLP の条件も適宜設定する。<img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention04.png"/> 
+## Setup Procedure
+1. Access [Data Lifecycle Management](https://compliance.microsoft.com/informationgovernance) in the Microsoft Purview portal.
+1.A. If you want to exclude a specific library from DLP, create a retention label with a name such as "Shareable" without any retention settings.
+1.B. If you want to apply DLP only to a specific library, create a retention label with a name such as "Cannot Share" without any retention settings. <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention01.png"/>
 
-## 保持ラベルに応じた検索
-ライブラリ内で、特定の保持ラベルがついたアイテムのみを検索したい場合には、"ComplianceTag" という管理プロパティを用いて、以下の KQL で検索が可能。    
-`ComplianceTag:"共有不可"`    
-    
-ライブラリ内で、特定の保持ラベルがついていないアイテムのみを検索したい場合には、"ComplianceTag" という管理プロパティを用いて、以下の KQL で検索が可能。    
-`-ComplianceTag:"共有可能"`    
+2. Publish the retention label created in step 1 to a specific SharePoint Online site using Data Lifecycle Management's [Label Policies](https://compliance.microsoft.com/informationgovernance?viewid=labelpolicies).
+
+3. After step 2, wait a few hours, then access the library in the SharePoint Online site in question. From the gear menu in the upper right, go to Library Settings -> Other Library Settings and select "Apply a label to items in this list or library."
+3.A. If you want to exclude this library from DLP, set the "Shareable" retention label as the default retention label.
+3.B. If you want to apply DLP to only this library, set the "Not Shareable" retention label as the default retention label. <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention02.png"/>
+
+4. Create a DLP policy for the specific SharePoint Online site listed above in the Microsoft Purview portal under [Data Loss Prevention](https://compliance.microsoft.com/datalossprevention?viewid=policies).
+4.A. To exclude specific libraries from DLP in a DLP rule, add a "Group," select "Retention Label" from "Add Condition," and add the "Shareable" label. Enable "Not" for the rule group and set it to exclude items with the "Shareable" retention label. Set other DLP conditions as appropriate. <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention03.png"/>
+4.B. To apply DLP to only specific libraries, select "Retention Labels" from "Add Conditions," add the "Do Not Share" label, and set the target to only items with the "Do Not Share" retention label. Set other DLP conditions as appropriate. <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/DLPbyRetention04.png"/>
+
+## Search by Retention Label
+To search for only items in a library with a specific retention label, you can use the managed property "ComplianceTag" and search with the following KQL:
+`ComplianceTag:"Cannot be shared"`
+
+To search for only items in a library that do not have a specific retention label, use the managed property "ComplianceTag" and the following KQL:
+`-ComplianceTag:"Can be shared"`

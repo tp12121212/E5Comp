@@ -1,74 +1,74 @@
-# 概要
-本スクリプトは、ネストは考慮せず特定のグループに属する監視対象のユーザーが、許可されていない Teams への参加があれば、それらを CSV 出力するスクリプトになります。Connect に利用する ID は、チームのメンバー情報を参照できる必要があります。[参考:グループ管理者ロール](https://docs.microsoft.com/ja-jp/azure/active-directory/roles/permissions-reference#groups-administrator)
+# Overview
+This script outputs a CSV file of any unauthorized Teams participation by monitored users belonging to a specific group, regardless of nesting. The ID used to connect must be able to access team member information. [Reference: Group Administrator Role](https://docs.microsoft.com/ja-jp/azure/active-directory/roles/permissions-reference#groups-administrator)
 
-## 事前準備
-管理者権限の PowerShell で一度以下を実行
+## Preparation
+Run the following command once in PowerShell with administrator privileges.
 ```
 Install-Module -Name AzureAD
 Install-Module -Name MicrosoftTeams
 ```
 
-## 監視対象のユーザーが許可されていない Teams のチームに参加していないかチェックするスクリプト サンプル
+## Sample script to check whether monitored users are participating in unauthorized Teams teams.
 ```
-#監査対象のグループ(ネストは考慮しない)
+# Groups to audit (nesting not considered)
 $GroupforAudit ="sg-Legal"
-#監査対象のグループのメンバーが参加許可されているTeams チーム
+# Teams that members of the audited group are allowed to join.
 $AllowedTeams=("Contoso Team", "Ask HR", "Operations")
-#接続に利用するID / パスワード
+# ID and password to use for connection
 $Id="xxx@xxx.onmicrosoft.com"
 $Password = "xxxxx"
 $OutputFolder=[System.Environment]::GetFolderPath("Desktop")+"\"
 
-#Credentialの生成
+#Generate Credential
 $SecPass=ConvertTo-SecureString -String $Password -AsPlainText -Force
 $Credential= New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Id, $SecPass
 
 Connect-AzureAD -credential $Credential
 
-#監視対象のグループを取得
+#Get monitored groups
 $g=Get-AzureADGroup -SearchString $GroupforAudit
 
-#許可されているO365 Groupの詳細を取得
+#Get details of allowed O365 groups
 $AllowedTeamsGuid=@();
 Foreach($t in $AllowedTeams){
-	$r=Get-AzureADGroup -SearchString $t
-	$AllowedTeamsGuid+=$r.ObjectId
+$r=Get-AzureADGroup -SearchString $t
+$AllowedTeamsGuid+=$r.ObjectId
 }
 
-#許可されたものを除く Teams のチームを全件取得
+#Get all Teams except allowed ones
 Connect-MicrosoftTeams -credential $Credential
 $Teams=Get-Team -NumberOfThreads 20
 $TeamsGuid=@()
 Foreach($tg in $Teams){
-	If(!$AllowedTeamsGuid.IndexOf($tg.GroupId) -ne -1)
-	{$TeamsGuid+=$tg.groupId.ToString()}
+If(!$AllowedTeamsGuid.IndexOf($tg.GroupId) -ne -1)
+{$TeamsGuid+=$tg.groupId.ToString()}
 }
 
-#対象のユーザーの取得
-$UsersforAudit=Get-AzureADGroupMember -ObjectId $g.ObjectId -All $true|?{$_.UserType -eq "Member"} 
+#Get target users
+$UsersforAudit=Get-AzureADGroupMember -ObjectId $g.ObjectId -All $true|?{$_.UserType -eq "Member"}
 
 $csv=@()
 Foreach($u in $UsersforAudit){
-	#監査対象のユーザーのTeamsのメンバーシップを取得
-	$membership=Get-AzureADUserMembership -ObjectId $u.ObjectID -All $true|?{$_.ObjectType -eq "Group"}|?{$TeamsGuid.IndexOf($_.ObjectId) -ne -1}
+#Get Teams membership for audited users
+$membership=Get-AzureADUserMembership -ObjectId $u.ObjectID -All $true|?{$_.ObjectType -eq "Group"}|?{$TeamsGuid.IndexOf($_.ObjectId) -ne -1}
 
-        #許可されていないグループへの参加があれば記録
-	Foreach($m in $membership){
-		$line = New-Object PSObject | Select-Object UserName, UPN, TeamName, TeamGuid
-		$line.UserName=$u.DisplayName
-		$line.UPN=$u.UserPrincipalName
-		$line.TeamName=$m.DisplayName
-		$line.TeamGuid=$m.ObjectID
-		$csv+=$line
-		}
+#Record unauthorized group membership
+Foreach($m in $membership){
+$line = New-Object PSObject | Select-Object UserName, UPN, TeamName, TeamGuid
+$line.UserName=$u.DisplayName
+$line.UPN=$u.UserPrincipalName
+$line.TeamName=$m.DisplayName
+$line.TeamGuid=$m.ObjectID
+$csv+=$line
+}
 }
 
-#CSV出力
+#CSV Output
 $csv|Export-csv -Path ($OutputFolder+"UnAllowedMembership"+(Get-Date -Format "yyyyMMdd-HHmm")+".csv") -Encoding UTF8 -NoTypeInformation
 
 ```
 
-## 出力サンプル
+## Sample Output
 ```
 "UserName","UPN","TeamName","TeamGuid"
 "Joni Sherman","JoniS@xxxx.OnMicrosoft.com","Sales and Marketing","8cd8e24a-71da-4891-b5ce-b38b7905944d"

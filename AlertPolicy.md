@@ -1,75 +1,69 @@
-# アラート ポリシーを利用して監査ログに記録された操作に応じてアラートを発令する
-Purview Portal の[アラート ポリシー](https://learn.microsoft.com/ja-jp/microsoft-365/compliance/alert-policies?view=o365-worldwide)では、
-DLP の設定などに応じて、どういった状況でアラートを生成し、管理者への通知を行うかの設定が確認できます。
-またこのアラート ポリシーの仕組みを用いて、監査ログに記録される各種操作に応じたアラートの発令も設定することができます。
-ただし、[Web UI](https://compliance.microsoft.com/alertpoliciesv2) からでの設定では、任意の監査ログの Operation を選択することができず、やや汎用性にかけます。
-一方で PowerShell で用意されている [New-ProtectionAlert](https://learn.microsoft.com/ja-jp/powershell/module/exchange/new-protectionalert?view=exchange-ps) のコマンドレットを利用すれば、任意の監査ログの Operation に応じたアラートの定義が可能です。
+# Use alert policies to issue alerts based on operations recorded in the audit log.
+In the [Alert Policies](https://learn.microsoft.com/ja-jp/microsoft-365/compliance/alert-policies?view=o365-worldwide) section of the Purview Portal, you can check the conditions under which alerts are generated and administrators are notified, based on DLP settings and other factors.
+You can also use these alert policies to set up alerts based on various operations recorded in the audit log.
+However, when configuring via the [Web UI](https://compliance.microsoft.com/alertpoliciesv2), you cannot select specific audit log operations, making this somewhat less versatile.
+On the other hand, you can use the [New-ProtectionAlert](https://learn.microsoft.com/ja-jp/powershell/module/exchange/new-protectionalert?view=exchange-ps) cmdlet provided in PowerShell to define alerts based on specific audit log operations.
 
-## ライセンス
-一定時間の閾値や、7 日間のアノマリーで閾値を設定する場合、MDO P2、E5、E5 Complinace、eDiscovery and Audit のいずれかのライセンスが必要となる。時間の範囲は最も短くて 60 分、操作回数の閾値の下限は 3。<br>
-特に閾値を設けない場合でも、上位版のライセンスがあれば、1 分間のインターバルで同様の操作は一つのアラートに集計され、上位版のライセンスがなければ、15 分間のインターバルで同様の操作が集計されて、1 つのアラートとなる。<br>
-[参考: アラートの集計](https://learn.microsoft.com/ja-jp/microsoft-365/compliance/alert-policies?view=o365-worldwide#alert-aggregation)
+## License
+To set a threshold based on a specific time period or a 7-day anomaly, you need an MDO P2, E5, E5 Complinace, or eDiscovery and Audit license. The minimum time range is 60 minutes, and the minimum operation count threshold is 3. <br>
+Even if you do not set a specific threshold, if you have a higher-level license, similar operations at 1-minute intervals will be aggregated into a single alert. If you do not have a higher-level license, similar operations at 15-minute intervals will be aggregated into a single alert. <br>
+[Reference: Alert Aggregation](https://learn.microsoft.com/ja-jp/microsoft-365/compliance/alert-policies?view=o365-worldwide#alert-aggregation)
 
+## Example of an alert based on sensitivity label operations
 
-## 秘密度ラベル操作に応じたアラート例
-
-### 秘密度ラベルを削除する度にアラートを生成する。
+### An alert is generated each time a sensitivity label is deleted.
 ````
 Connect-IPPSSession
-New-ProtectionAlert -Category DataLossPrevention -Name SensitivityLabelRemoved -NotifyUser admin@xxxx.onmicrosoft.com  -ThreatType Activity -Operation SensitivityLabelRemoved -AggregationType none -NotificationCulture ja-JP
+New-ProtectionAlert -Category DataLossPrevention -Name SensitivityLabelRemoved -NotifyUser admin@xxxx.onmicrosoft.com -ThreatType Activity -Operation SensitivityLabelRemoved -AggregationType none -NotificationCulture ja-JP
 ````
 
-### 1 時間の中で 3 回以上、秘密度ラベルを変更するとアラートを生成する。
+### Generate an alert if the sensitivity label is changed more than three times within one hour.
 ````
 Connect-IPPSSession
-New-ProtectionAlert -Category DataLossPrevention -Name SensitivityLabelUpdated -NotifyUser admin@mxxx.onmicrosoft.com  -ThreatType Activity -Operation SensitivityLabelUpdated -NotificationCulture ja-JP -AlertBy User -Threshold 3 -TimeWindow 60
+New-ProtectionAlert -Category DataLossPrevention -Name SensitivityLabelUpdated -NotifyUser admin@mxxx.onmicrosoft.com -ThreatType Activity -Operation SensitivityLabelUpdated -NotificationCulture ja-JP -AlertBy User -Threshold 3 -TimeWindow 60
 ````
-### アラート通知
+### Alert Notification
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/alert/Alert01.png" height="400px">
 
-### アラート詳細
+### Alert Details
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/alert/Alert02.png" height="400px">
 
-### 補足
-秘密度ラベルの手動操作は、下記の RecodTyped で記録され、それぞれ SharePoint Online 上の Office for the Web、M365 Apps、AIP Client の操作が記録される。<br>
-6 SharePointFileOperation    
-83 SensitivityLabelAction    
-94 AipSensitivityLabelAction    
-[参考: Office 365 監査ログでの RecordType について](https://github.com/YoshihiroIchinose/E5Comp/blob/main/RecordTypes.md)    
+### Additional Information
+Manual sensitivity label operations are recorded in the following RecodTyped and are applied to Office for the Office on SharePoint Online: Web, M365 Apps, and AIP Client operations are recorded. <br>
+6 SharePointFileOperation
+83 SensitivityLabelAction
+94 AipSensitivityLabelAction
+[Reference: About RecordTypes in Office 365 Audit Logs](https://github.com/YoshihiroIchinose/E5Comp/blob/main/RecordTypes.md)
 
-M365 Apps や AIP クライアントのいずれの RecordType であっても、以下の共通の Operation が記録されるため、サンプルのような
-秘密度ラベルの削除であれば、SensitivityLabelRemoved、
-秘密度ラベルの変更であれば、SensitivityLabelUpdated の Operation を対象にしたアラートを設定すれば、
-M365 Apps や AIP クライアントかによらず、アラートの対象とすることができる。<br>
-SensitivityLabelApplied    
-SensitivityLabelUpdated    
-SensitivityLabelRemoved    
-SensitivityLabelPolicyMatched    
-SensitivityLabeledFileOpened    
+The following common operations are recorded regardless of whether the RecordType is M365 Apps or AIP Client. Therefore, if you set an alert for the following operations, such as SensitivityLabelRemoved for the removal of a sensitivity label (as in the sample), or SensitivityLabelUpdated for the change of a sensitivity label, you can be alerted regardless of whether it is M365 Apps or AIP Client. <br>
+SensitivityLabelApplied
+SensitivityLabelUpdated
+SensitivityLabelRemoved
+SensitivityLabelPolicyMatched
+SensitivityLabeledFileOpened
 
-一方で Office for the Web で秘密度ラベルを操作した際には、6 SharePointFileOperation の RecordType で M365 Apps や AIP Client とは
-違った以下の名称の Operation で操作が記録されるため、これらを対象にする場合には、別途アラートの定義を行う必要がある。    
-FileSensitivityLabelApplied    
-FileSensitivityLabelChanged    
-FileSensitivityLabelRemoved    
+However, when operating sensitivity labels in Office for the Web, the operations are recorded with the following RecordType of SharePointFileOperation, which differs from those in M365 Apps and AIP Client. Therefore, if you want to target these operations, you must define a separate alert.
+FileSensitivityLabelApplied
+FileSensitivityLabelChanged
+FileSensitivityLabelRemoved
 
-### 制限事項
-アラート ポリシーを利用して秘密度ラベルの操作を監視する場合においては、以下の制限事項がある。
-1. ラベルの変更や削除などの操作に対してアラート設定は可能だが、ログが分かれておらず、ログの内容に応じたフィルタもできないため、秘密度ラベルのダウングレード操作のみを対象とすることはできない。
-2. アラート対象となるユーザーをグループで限定しておくことはできない。アラートを設定する場合、テナント全体のユーザーに対して共通の閾値で設定することとなる。(ユーザーの属性などでフィルタ出来る可能性もあるが、一見したところ、Azure AD の属性や、セキュリティ グループなどでフィルタすることはできなさそう。)
-3. アラートが発令してアラートを確認した際、アラートからは誰がいつその操作を何回行ったかは判別可能であるが、監査ログに記録されているものがそのまま記載されているわけではないため、どんなラベルからどう変更したかなどは判別できない。<br>
+### Limitations
+When using alert policies to monitor sensitivity label operations, the following limitations apply:
+1. While it is possible to set alerts for operations such as label changes and deletions, the logs are not separate and filtering based on the log content is not possible, so it is not possible to target only sensitivity label downgrade operations.
+2. It is not possible to limit the users targeted by alerts by group. When setting an alert, a common threshold is set for all users in the tenant. (It may be possible to filter by user attributes, but at first glance, it does not appear possible to filter by Azure AD attributes or security groups.)
+3. When an alert is issued and you check it, you can determine who performed a certain operation, when, and how many times. However, since the audit log does not contain the exact information recorded, you cannot determine what label was changed and how it was changed. <br>
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/alert/Alert03.png"><br>
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/alert/Alert04.png" height="400px"><br>
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/alert/Alert05.png" height="400px"><br>
 
-これらを踏まえると、アラートが発令された場合に調査を行いたければ、Activity Explorer の [UI](https://compliance.microsoft.com/dataclassification?viewid=activitiesexplorer) もしくは、[PowerShell で抜き出した情報](https://github.com/YoshihiroIchinose/E5Comp/blob/main/ActivityExplorerData.md)を元に詳細を分析することが望ましい。Acvitiy Explorer の情報では、元の秘密度ラベルや、現行の秘密度ラベルだけではなく、監査ログには記録されていない、LabelDowgarded や LabelUpgraded などのラベル イベントの種類が判定されているため、より効率的なフィルタや調査が可能となっている。<br>
+With these points in mind, if you want to investigate an alert, you can do so using the Activity Explorer UI or PowerShell. It is recommended to perform a detailed analysis based on the information extracted by [https://github.com/YoshihiroIchinose/E5Comp/blob/main/ActivityExplorerData.md]. Activity Explorer information not only includes the original and current sensitivity labels, but also identifies label event types such as LabelDowngraded and LabelUpgraded, which are not recorded in the audit log, allowing for more efficient filtering and investigation. <br>
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/alert/Alert06.png" height="400px">
 
-なお監査ログにおいては、SensitivityLabelEventData の LabelEventType の値で秘密度ラベルのアップグレードかダウングレードか識別可能。    
+In the audit log, you can identify whether a sensitivity label was upgraded or downgraded by looking at the LabelEventType value of SensitivityLabelEventData.
 
-| 値 | 内容 | 意味 |    
-| :--- | :--- | :--- |    
-| 1 | LabelUpgraded | より高い秘密度のラベルへ変更 |    
-| 2 | LabelDowngraded | より低い秘密度のラベルへ変更 |    
-| 3 | LabelRemoved | 秘密度ラベルの削除 |    
-| 4 | LabelChangedSameOrder | 同じ秘密度のサブラベル間での変更 |    
+| Value | Content | Meaning |
+| :--- | :--- | :--- |
+| 1 | LabelUpgraded | Changed to a label with a higher sensitivity level |
+| 2 | LabelDowngraded | Changed to a label with a lower sensitivity level |
+| 3 | LabelRemoved | Sensitivity label removed |
+| 4 | LabelChangedSameOrder | Changed between sublabels with the same sensitivity level |

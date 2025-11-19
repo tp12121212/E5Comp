@@ -1,39 +1,37 @@
-## 今後利用できなくなる可能性あり
-本スクリプトは、従来型の MDA の全機能が利用可能であったレガシーのトークンを利用したものです。今後推奨の OAuth 2.0 のトークンでは、権限付与の範囲が厳格化され、本スクリプトで利用している API は動作しなくなります。そのため本スクリプトも、今後動作させることができなくなる可能性があります。参考：[MDA トークン](https://learn.microsoft.com/ja-jp/defender-cloud-apps/api-authentication)
+## May become unavailable in the future
+This script uses legacy tokens that allow access to all the functionality of the previous MDA. The recommended OAuth 2.0 tokens will have stricter authorization scope, and the APIs used in this script will no longer work. Therefore, this script may no longer work in the future. Reference: [MDA Token](https://learn.microsoft.com/en-us/defender-cloud-apps/api-authentication)
 
-## スロットリング時の動作について
-MDA では、1 分間に 30 Call という制限がありますが、MDA の環境によって、この制限を超えた API 呼び出しの際、即時スロットリングされたというエラーが返ってくる非同期的な動作の場合と、1 分間応答が待たされて、正しく結果が返ってくるという同期的な動作の 2 種類の動作があります。本スクリプトは、同期的な動作の環境でテストしているため、非同期的な動作をする環境でのエラー ハンドリングが正しく検証できておりません。
+## About Throttling
+MDA has a limit of 30 calls per minute. Depending on the MDA environment, API calls that exceed this limit can behave in two ways: asynchronously, where an immediate throttled error is returned, or synchronously, where a one-minute wait for a response is made and the correct result is returned. This script was tested in a synchronous environment, so error handling in asynchronous environments has not been properly verified.
 
-# Defender for Cloud Apps でのラベル適用のガバナンス アクションをリトライする
-本サンプル スクリプトは、Microsoft 365 Defender の[ガバナンス ログ](https://security.microsoft.com/cloudapps/governance-log)の情報を、
-PowerShell を使った API アクセスで取得し、失敗したままになっている秘密度ラベル適用をリトライするものです。
-具体的には、ガバナンス ログの中から成功・失敗含めてラベル付けのアクションを直近 8 時間の範囲で、最大 300 件取得し、そのうち以下のものを除いてリトライを実施します。適宜バッチの実行頻度に応じて、ガバナンス ログの取得件数や、対象外とするログの範囲を調整下さい。   
-- 新しいログで既にラベル付けに成功しているファイルに関する操作
-- 既にラベルが付与されていることにより失敗しているもの
-- 1 時間以内に失敗しているもの
-- 24 時間以上前に作成されたファイル
-- 同じファイルに対する重複したリトライ (2023/12/25 更新)
+# Retrying a governance action to apply a label in Defender for Cloud Apps
+This sample script retrieves information from the Microsoft 365 Defender [Governance Log](https://security.microsoft.com/cloudapps/governance-log) using API access via PowerShell and retries any failed sensitivity label applications.
+Specifically, it retrieves up to 300 labeling actions, both successful and failed, from the governance log over the past 8 hours and retries all except the following. Please adjust the number of governance log entries retrieved and the range of logs to exclude depending on the batch execution frequency.
+- Operations related to files that have already been successfully labeled in the new log
+- Operations that failed due to the label already being applied
+- Operations that failed within the last hour
+- Files created more than 24 hours ago
+- Duplicate retries for the same file (Updated December 25, 2023)
 
-バッチ実行に当たっては、本スクリプトを、Azure Automation 上に配置するか、インターネットに接続可能で、PowerShell が動作する常時稼働の Windows マシンで、スケジュール実行します。(特に特殊なモジュールのインストールなどは不要。)    
----(2023/12/25 更新)---   
-なお、Box のダウンロード無効化のロック時や、各種障害等によりラベル付けが失敗・内部エラーとなる場合、ガバナンス ログでは、ShouldRetry = false となっているがこれらもリトライするように変更(ShouldRetryの判定条件を # でコメント アウト)。また同じファイルで複数のラベル付け失敗のログがある場合に、1 回のスクリプト実行で、重複してラベル付けをリトライをしないように修正。
-## Defender for Cloud Apps のラベル付け動作
-Defender for Cloud Apps のラベル付けはでは以下の動作が行われています。
-1. アクティビティとして新しいファイルの作成・アップロードがログに確認される
-1. ファイル ページで新しいファイルが認識される
-1. ファイル ポリシーに合致していた場合、同ファイルに対するガバナンス ログが記録され、ガバナンス アクションとしてラベル付けが試行される
-1. ファイルが編集中の場合など初回の試行が失敗した場合、ガバナンス アクションは保留状態となる
-1. 初回の施行後、15 分間隔で 3 回リトライし、おおよそ 45 分間で 4 回の試行がすべて失敗した場合、ガバナンス アクションは失敗状態となる   
-   (ファイルがずっと編集中であった場合、"保護されたファイルをアップロードできませんでした"というエラーで失敗状態となる)
-1. 一度ガバナンス アクションが失敗状態となった場合、以後同ファイルの更新があっても、ラベル付けはリトライされない
-1. ガバナス ログからの手動のリトライもしくは本スクリプトのリトライにより、ラベル付けが失敗したままになっているファイルのラベル付けを再度試行することが可能
+For batch execution, place this script on Azure Automation or schedule it to run on a Windows machine with internet access and PowerShell running. (No special modules need to be installed.)
+---(Updated December 25, 2023)---
+Note: In the governance log, ShouldRetry = false is displayed when labeling fails or results in an internal error due to a Box download disable lock or various other issues. However, this has been changed to retry these cases (the ShouldRetry condition has been commented out with a #). Also, if there are multiple failed labeling logs for the same file, a single script execution will no longer retry labeling multiple times.
+## Defender for Cloud Apps labeling behavior
+Defender for Cloud Apps labeling works as follows:
+1. The creation or upload of a new file is confirmed in the log as an activity.
+1. A new file is recognized on the Files page.
+1. If the file policy is met, a governance log entry for the file is recorded, and a labeling attempt is made as a governance action.
+1. If the initial attempt fails, for example, because the file is being edited, the governance action is put into a pending state.
+1. After the initial attempt, three retries are made at 15-minute intervals. If all four attempts fail within approximately 45 minutes, the governance action is put into a failed state.
+(If the file is being edited continuously, the action is put into a failed state with the error "Failed to upload protected file.")
+1. Once a governance action has failed, labeling will not be retried even if the file is subsequently updated.
+1. You can retry a file that has failed labeling by manually retrying it from the governance log or by using this script.
 
-## 事前準備
-### API トークン
-Defender for Cloud Apps の [API トークン](https://security.microsoft.com/cloudapps/settings?tabid=apiTokens)のページにアクセスし、
-64 文字の英数字で構成されるトークンを事前に取得しておきます。取得後は再表示されず、以前のトークンが分からなくなった場合には、トークンの再発行が必要となる点に注意します。
+## Preparation
+### API Token
+Defender for Cloud Apps [API] Visit the [Tokens](https://security.microsoft.com/cloudapps/settings?tabid=apiTokens) page and obtain a 64-character alphanumeric token in advance. Please note that once obtained, the token will not be displayed again, and if you forget the previous token, you will need to reissue it.
 
-## スクリプト本体
+## Script body
 ````
 #Parameters
 #should be replaced by the tenant domain
@@ -49,96 +47,95 @@ $filter='{"status":{"eq":[true, false]},"timestamp":{"gte":'+$t+'},"type":{"eq":
 #Amount of governance actions to retrieve
 $ResultSetSize=300
 
-#Getting files 
+#Getting files
 $batchSize=100 # the fixed limit for a single request
 $loopcount = [int][Math]::Ceiling($ResultSetSize / $batchSize)
 $headers=@{"Authorization" = "Token "+$Token}
 $output=@()
-For($i=0;$i -lt $loopcount; $i++){
-	$limit=$batchSize
-	if($loopcount -1 -eq $i){$limit=$ResultSetSize % $batchSize}
-	if($limit -eq 0){$limit=$batchSize}
-	$Body=@{
-		"skip"=0 + $i*$batchSize
-		"limit"=$limit
-		"filters"=$filter
-		"sortField"="timestamp"
-		"sortDirection"="desc"
-		}
-	do {
-		$retryCall = $false
-		try {
-			$res=Invoke-RestMethod -Uri $Uri -Method "Post" -Headers $headers -Body $Body
-			"Loop: $i, From " +$i*$batchSize +", " + $res.data.Count +" items"
-			}
-		catch {
-			if ($_ -like 'The remote server returned an error: (429) TOO MANY REQUESTS.'){
-				$retryCall = $true
-				Start-Sleep -Seconds 5
-			}
-			ElseIf ($_ -match 'throttled'){
-				$retryCall = $true
-				Start-Sleep -Seconds 60
-			}
-			ElseIf ($_ -like '504' -or $_ -like '502'){
-				$retryCall = $true
-				Start-Sleep -Seconds 5
-				}
-			else {
-				throw $_
-			}
-		}
-	}
-	while ($retryCall)
-	$output+=$res.data
-	if($res.data.Count -lt $batchsize){break}
+For($i=0;$i -lt $loopcount; $i++){ 
+$limit=$batchSize 
+if($loopcount -1 -eq $i){$limit=$ResultSetSize % $batchSize} 
+if($limit -eq 0){$limit=$batchSize} 
+$Body=@{ 
+"skip"=0 + $i*$batchSize 
+"limit"=$limit 
+"filters"=$filter 
+"sortField"="timestamp" 
+"sortDirection"="desc" 
+} 
+do { 
+$retryCall = $false 
+try { 
+$res=Invoke-RestMethod -Uri $Uri -Method "Post" -Headers $headers -Body $Body 
+"Loop: $i, From " +$i*$batchSize +", " + $res.data.Count +" items" 
+} 
+catch { 
+if ($_ -like 'The remote server returned an error: (429) TOO MANY REQUESTS.'){ 
+$retryCall = $true 
+Start-Sleep-Seconds 5 
+} 
+ElseIf ($_ -match 'throttled'){ 
+$retryCall = $true 
+Start-Sleep -Seconds 60 
+} 
+ElseIf ($_ -like '504' -or $_ -like '502'){ 
+$retryCall = $true 
+Start-Sleep-Seconds 5 
+} 
+else { 
+throw $_ 
+} 
+} 
+} 
+while ($retryCall) 
+$output+=$res.data 
+if($res.data.Count -lt $batchsize){break}
 }
 "Retrieved " +$output.count+" actions"
 
 $completed=@()
 $retried=@()
-Foreach($d in $output){
-        $skipmessage=@()
-	#Skip labeled file
-	if($completed.IndexOf($d.targetObjectId) -ne -1){
-		$skipmessage+="Labeld file"
-	}
-	#Skip retried file
-	if($retried.IndexOf($d.targetObjectId) -ne -1){
-		$skipmessage+="Retried file"
-	}
-	#Skip success
-	if($d.status.isSuccess){
-		$completed+=$d.targetObjectId
-		$skipmessage+="Successful task"
-	}
-	#Skip which is not supporsed to be retried #removed this condition
-	#if($d.status.shouldRetry -eq $false){$skipmessage+="ShouldNotRetry"}
+Foreach($d in $output){ 
+$skipmessage=@() 
+#Skip labeled file 
+if($completed.IndexOf($d.targetObjectId) -ne -1){ 
+$skipmessage+="Label file" 
+} 
+#Skip retried file 
+if($retried.IndexOf($d.targetObjectId) -ne -1){ 
+$skipmessage+="Retried file" 
+} 
+#Skip success 
+if($d.status.isSuccess){ 
+$completed+=$d.targetObjectId 
+$skipmessage+="Successful task" 
+} 
+#Skip which is not supported to be retried #removed this condition #if($d.status.shouldRetry -eq $false){$skipmessage+="ShouldNotRetry"} 
 
-	#Skip files protected by any solution outside of MDA
-	if($d.status.statusMessage.Contains("already protected")){
-		$completed+=$d.targetObjectId
-		$skipmessage+="Already Protected"
-	}
+#Skip files protected by any solution outside of MDA 
+if($d.status.statusMessage.Contains("already protected")){ 
+$completed+=$d.targetObjectId 
+$skipmessage+="Already Protected" 
+} 
 
-	#Skip actions which was taken within last 1 hour
-	$initiated=([datetimeoffset]::FromUnixTimeMilliseconds($d.timestamp)).UtcDateTime
-	If($initiated -ge (Get-Date).ToUniversalTime().AddHours(-1)){$skipmessage+="Within last 1 hours"}
+#Skip actions which was taken within last 1 hour 
+$initiated=([datetimeoffset]::FromUnixTimeMilliseconds($d.timestamp)).UtcDateTime 
+If($initiated -ge (Get-Date).ToUniversalTime().AddHours(-1)){$skipmessage+="Within last 1 hours"} 
 
-	#Skip files created over 24 hours before
-    	If($d.created.ToDateTime($null) -le (Get-Date).AddHours(-24)){$skipmessage+="Old file"}
+#Skip files created over 24 hours ago 
+If($d.created.ToDateTime($null) -le (Get-Date).AddHours(-24)){$skipmessage+="Old file"} 
 
-	if($skipmessage.count -ge 1){
-        	$d.targetObject+","+$d.targetObjectId+",skipped, due to " + ($skipmessage -join ", ")
-        	continue
-        }
+if($skipmessage.count -ge 1){ 
+$d.targetObject+","+$d.targetObjectId+",skipped, due to " + ($skipmessage -join ", ") 
+continue 
+} 
 
-	$d.targetObject+","+$d.targetObjectId+",Retry"
-	#Retry should be called with governance log id
-	$RetryUri=$Uri+$d._id+"/retry/"
-	$res2=Invoke-RestMethod -Uri $RetryUri -Method "Get" -Headers $headers
-    	$retried+=$d.targetObjectId
-	Start-Sleep -Seconds 1
+$d.targetObject+","+$d.targetObjectId+",Retry" 
+#Retry should be called with governance log id 
+$RetryUri=$Uri+$d._id+"/retry/" 
+$res2=Invoke-RestMethod -Uri $RetryUri -Method "Get" -Headers $headers 
+$retried+=$d.targetObjectId 
+Start-Sleep-Seconds 1
 }
 
 ````

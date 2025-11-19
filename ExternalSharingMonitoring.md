@@ -1,123 +1,121 @@
-English version is [here](https://github.com/YoshihiroIchinose/E5Comp/blob/main/ExternalSharingMonitoring_en.md)   
-# 許可されていない B2B 外部共有操作をメール通知する
-DLP の補完として、許可されていないドメインの外部ユーザーにSharePoint Online / OneDriver for Business / Teams 等を通じて、
-ファイルの共有を行った際、それらの操作を監査ログから拾ってメール通知することを実現するサンプルの手順を紹介します。
-おおよその動作の仕組みとしては以下の通りです。
-1. 許可されたドメインを管理する SharePoint リストを用意しておく
-2. 共有操作を記録する SharePoint リストを用意しておく
-3. 上記 SharePoint リストに Power Automate で新しいアイテムが追加された際、共有操作を行ったユーザーにメール通知を行う処理を設定しておく
-4. Azure Automate を用いて、一定期間ごとに監査ログから許可されていないドメインの外部ユーザーへの共有操作を抜き出し、重複を排除しながら新規共有操作のログを 2 のリストに書き込む
+The English version is [here](https://github.com/YoshihiroIchinose/E5Comp/blob/main/ExternalSharingMonitoring_en.md)
+# Send email notifications for unauthorized B2B external sharing operations
+As a complement to DLP, we'll introduce a sample procedure for capturing file sharing operations with external users from unauthorized domains via SharePoint Online, OneDriver for Business, Teams, etc., and sending email notifications based on those operations from the audit log.
+The general mechanism for this is as follows:
+1. Prepare a SharePoint list to manage allowed domains.
+2. Prepare a SharePoint list to record sharing operations.
+3. When a new item is added to the SharePoint list using Power Automate, set up a process to send an email notification to the user who performed the sharing operation.
+4. Use Azure Automate to periodically extract sharing operations to external users in unauthorized domains from the audit log, eliminating duplicates and writing the log of new sharing operations to the list in step 2.
 
-考慮事項
-1. Azure Automate では高額ではないが処理量に応じた従量課金が発生
-2. Power Automate のメール通知では、設定を行ったユーザーが送信者となったメール通知となり、Office 365 組み込みのライセンスでは、1 日 6,000 件といった処理量の上限あり
-3. 重複を排除した共有操作の追記をリストに行うため、Auzre Automate で抜き出すログの範囲は重複してもよい。もし数時間単位でタイムリーに通知を行いたい場合、Azure Automate で抜き出すログの範囲も直近数時間といった範囲に狭め、スケジュール実行の頻度を数時間サイクルとすること。
-4. テスト用に再度メール通知を行いたい場合には、SharePoint のリストから、該当の共有操作のログを消すこと。これにより Azure Automate で再度ログが登録しなおされた際、メール通知が Power Automate により行われる。
+Considerations
+1. Azure Automate is not expensive, but there is a pay-per-use fee based on the amount of processing.
+2. Power Automate email notifications are sent by the user who configured them, and the built-in Office 365 license has a processing limit of 6,000 notifications per day.
+3. Since sharing operations are added to the list after deduplicating them, the range of logs extracted by Azure Automate can overlap. If you want timely notifications within a few hours, narrow the range of logs extracted by Azure Automate to the most recent few hours and set the schedule execution frequency to a few hours.
+4. If you want to send email notifications again for testing purposes, delete the log for the relevant sharing operation from the SharePoint list. This will allow Power Automate to send email notifications when the log is re-registered in Azure Automate.
 
-# 事前準備
-## 1. 外部共有操作を書き出す SharePoint サイトの準備
-1. 専用の SharePoint チーム サイトを CustomeNotifcation の名称で作成する   
-1. 作成したサイトのサイト コンテンツから以下の名称で 2 つの空白のリストを作成する   
+# Preparation
+## 1. Prepare the SharePoint site for exporting external sharing operations
+1. Create a dedicated SharePoint team site named CustomNotification.
+1. Create two blank lists with the following names from the site contents of the created site.
 ### AllowedDomains
-特に列の追加なくタイトルのみのリスト。通知対象外とするドメインを追加しておく。ゲスト ユーザーの ID と後方一致でマッチングを行って、許可されたユーザーをドメインで除外する。リスト作成後、許可ドメインを追加した画面は以下。   
+This is a list with titles only, with no additional columns. Add domains to exclude from notifications. A backward match with the guest user ID is performed to exclude allowed users by domain. The following screen shows the list after adding allowed domains.
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Notification6.png"/>
 
-### SharingActivities   
-タイトル以外の以下の列を追加する。PowerShell で扱いやすくするために、以下の通り英数字で列は作成する。   
-| 列の名称 | タイトル | User | Guest | Time | Operation | SharedItem | AdditionalData | Notified |
+### SharingActivities
+Add the following columns in addition to the title: To make it easier to use in PowerShell, create columns using alphanumeric characters as follows.
+| Column Name | Title | User | Guest | Time | Operation | SharedItem | AdditionalData | Notified |
 |-------|----|----|----|----|----|----|----|----|
-| 列の種類 | 既存の 1 行テキスト | 1 行テキスト | 1 行テキスト | 日付と時刻* | 1 行テキスト | 1 行テキスト | 複数行テキスト | はい/いいえ (既定値 いいえ) |
-| 格納する情報 | ログを識別する GUID | 操作を行ったユーザー | 招待されたゲスト | 招待した時間 | 操作内容の種別 | 共有されたアイテム | その他付随情報を格納 | 通知処理を行ったかどうかのフラグ |
+| Column Type | Existing Single Line of Text | Single Line of Text | Single Line of Text | Date and Time* | Single Line of Text | Single Line of Text | Multiple Lines of Text | Yes/No (Default: No) |
+| Information to Store | GUID to Identify Log | User Who Performed the Operation | Invited Guest | Time of Invite | Type of Operation | Shared Item | Store Other Additional Information | Flag to Indicates Whether Notification Processing Was Performed |
 
-*日付と時刻の種類を選び、時刻を含めるをはいとする。また SharingActivities のリストの設定から、列のインデックス付きの列で、Time にインデックスを設定しておく。   
-こちらのリストにログが書き込まれると以下のような見た目となる。   
+*Select the Date and Time type and set Include Time to Yes. Also, in the SharingActivities list settings, set the index to Time under Indexed Columns.
+When logs are written to this list, it will look like this.
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Notification1.png"/>
 
-## 2. Azure 環境の設定
-1. Azure Automation アカウントを作成   
-1. Azure Automation アカウントにて、"モジュール" -> "ギャラリーを参照"から、以下の 3 つのモジュールを追加する。   
-(ランタイム バージョンは 5.1)   
-  SharePointOnline.CSOM    
-  PnP.PowerShell  
-  ExchangeOnlineManagement   
-1. Azure Automation アカウントの"資格情報"->"資格情報の追加"で、監査ログの抽出権限があり、   
-  指定の SharePoint Online サイトに投稿権限があるアカウントの ID とパスワードを "Office 365" という名称で登録しておく。
-1. Azure Automation アカウントの"Runbook"->"Runbook の作成"で PowerShell、ランタイム バージョン 5.1 の Runbook を作成する   
-1. 作成した Runbook に以下のスクリプトをコピー & ペーストする   
-1. 適宜スクリプト内の SharePoint Site の URL および、リスト名を変更・保存し、公開する   
-1. 作成した Runbook を"開始"し、動作を確認する   
-1. 必要に応じて Daily 等のスケジュール実行を設定する   
-Azure Automation で本スクリプトを実行すると、以下のように処理されたログの件数が出力される。   
+## 2. Setting Up Your Azure Environment
+1. Create an Azure Automation Account
+1. In your Azure Automation account, add the following three modules from "Modules" -> "Browse Gallery."
+(Runtime version is 5.1)
+SharePointOnline.CSOM
+PnP.PowerShell
+ExchangeOnlineManagement
+1. In your Azure Automation account, go to "Credentials" -> "Add Credentials" and register the ID and password of an account with permissions to extract audit logs and post to the specified SharePoint Online site under the name "Office 365."
+1. In your Azure Automation account, go to "Runbooks" -> "Create a Runbook" and create a PowerShell runbook with runtime version 5.1.
+1. Copy and paste the following script into the runbook you created.
+1. Modify the SharePoint site URL and list name in the script as appropriate, save it, and publish it.
+1. "Start" the runbook you created and check its operation.
+1. Set a schedule such as Daily if necessary.
+When you run this script in Azure Automation, the number of processed logs will be output, as shown below.
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Notification2B.png"/>
 
-#### Aure Automation サンプル スクリプト
+#### Aure Automation Sample Script
 ```
-#変数
+#Variables
 $Credential = Get-AutomationPSCredential -Name "Office 365"
 $SiteUrl="https://xxxx.sharepoint.com/sites/CustomNotification/"
 $AllowedDomainList="AllowedDomains"
 $SharingActivitiesList="SharingActivities"
 $HoursInterval=48
 
-#ログの取得範囲はテスト環境として過去 48 時間の範囲
+#Log acquisition scope is the past 48 hours as a test environment. Time Range
 $date=Get-Date
 $Start=$date.addHours($HoursInterval*-1).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $End=$date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-#ドメイン許可リストの取得
+#Get Domain Allow List
 Connect-PnPOnline -Url $SiteUrl -credentials $Credential
 $AllowedDmains=@()
 foreach($item in Get-PnPListItem -list $AllowedDomainList -PageSize 1000){
-    $AllowedDmains+=$item.FieldValues["Title"].ToLower()
+$AllowedDmains+=$item.FieldValues["Title"].ToLower()
 }
 
-#オブジェクトに値を設定する Function
+#Set Value to Object Function
 Function AddMember{
-    Param($a,$b,$c)
-    add-member -InputObject $a -NotePropertyName $b  -NotePropertyValue $c
+Param($a,$b,$c)
+add-member -InputObject $a -NotePropertyName $b -NotePropertyValue $c
 }
 
-#Azure AD B2B のゲスト ID の表記を見やすくする Function
+#Function for making Azure AD B2B guest IDs easier to read
 Function ExtractGuest{
-    Param($a)
-    $a=$a.replace("#EXT#","#ext#")
-    If($a.Contains("#ext#")){
-        return $a.Substring(0,$a.IndexOf("#ext#")).replace("_","@")
-    }
-    return $a
+Param($a)
+$a=$a.replace("#EXT#","#ext#")
+If($a.Contains("#ext#")){
+return $a.Substring(0,$a.IndexOf("#ext#")).replace("_","@")
+}
+return $a
 }
 
-#ドメイン許可リストに含まれているか判定する Funciton
+#Function for determining whether a domain is included in the allowed list
 Function IsAllowed{
-    Param($a)
-    $a=$a.ToLower()
-    foreach($i in $AllowedDmains){
-        if($a.EndsWith($i)){return $true}
-    }
-    return $false
+Param($a)
+$a=$a.ToLower()
+foreach($i in $AllowedDmains){
+if($a.EndsWith($i)){return $true}
+}
+return $false
 }
 
-#監査ログを 5,000 件 x 最大 10 回で 50,000 件取得し、$global:output に格納する Function
-Function ExtractAuditLog{
-    Param($type,$op)
-    if($type -eq $null){return}
-    $itemcount=0
-    for($i = 0; $i -lt 10; $i++){
-        $result=Search-UnifiedAuditLog -RecordType $type -StartDate $global:Start -EndDate $global:End -SessionId ($type+$op) -Operations $op	-SessionCommand ReturnLargeSet -ResultSize 5000
-	    "Query for $type, $op, Round("+($i+1)+"): "+$result.Count.ToString() + " items"
-	    $global:output+=$result
-	    $itemcount+=$result.Count
-	    if($result.count -ne 5000){break}
-    }
-    "$type, $op Total: "+$itemcount.ToString() + " items"
+#5,000 audit logs x up to 10 times = 50,000 Function that retrieves the data and stores it in $global:output
+Function ExtractAuditLog{ 
+Param($type,$op) 
+if($type -eq $null){return} 
+$itemcount=0 
+for($i = 0; $i -lt 10; $i++){ 
+$result=Search-UnifiedAuditLog -RecordType $type -StartDate $global:Start -EndDate $global:End -SessionId ($type+$op) -Operations $op -SessionCommand ReturnLargeSet -ResultSize 5000 
+"Query for $type, $op, Round("+($i+1)+"): "+$result.Count.ToString() + " items" 
+$global:output+=$result 
+$itemcount+=$result.Count 
+if($result.count -ne 5000){break} 
+} 
+"$type, $op Total: "+$itemcount.ToString() + " items"
 }
 
-#1. ゲスト ユーザーを SharePoint グループに追加し権限を付与する操作のログの取得
+#1. Obtaining a log of the operation of adding a guest user to a SharePoint group and granting permissions
 Connect-ExchangeOnline -credential $Credential
 $output=@()
 ExtractAuditLog "SharePointSharingOperation" "AddedToGroup"
 
-#結果がNullでなければ、まずは結果は1個とし、結果が複数個返されている場合には、そのカウントを取得
+#If the result is not null, first count one result. If multiple results are returned, obtain their count.
 $count=0
 if($output -ne $null){$count=1}
 if($output.count -ne $null){$count=$output.count}
@@ -125,43 +123,42 @@ if($output.count -ne $null){$count=$output.count}
 
 $csv=@()
 foreach($i in $output){
-    $AuditData=$i.AuditData|ConvertFrom-Json
-    #サイト作成時の SPO の App アカウントによる権限設定は除く
-    if($i.UserIds -eq "app@sharepoint"){continue}
-    #ゲスト以外の追加や、許可されたドメインのゲスト追加は除く
-    If($AuditData.TargetUserOrGroupType -ne "Guest" ){continue}
-    $guest=ExtractGuest $AuditData.TargetUserOrGroupName
-    If(isAllowed($guest)){continue}
-    $line = New-Object -TypeName PSObject
-    AddMember $line "User" $i.UserIds
-    AddMember $line "Guest" $guest
-    AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
-    AddMember $line "Operation" "Site Shared"
-    AddMember $line "SharedItem" $AuditData.SiteUrl
-    AddMember $line "LogId" $AuditData.CorrelationId
-    AddMember $line "AdditionalData" $AuditData.EventData
-    $csv+=$line
+$AuditData=$i.AuditData|ConvertFrom-Json
+#Excludes permissions set by the SPO app account when creating the site
+if($i.UserIds -eq "app@sharepoint"){continue}
+#Excludes adding non-guests or guests from allowed domains
+If($AuditData.TargetUserOrGroupType -ne "Guest" ){continue}
+$guest=ExtractGuest $AuditData.TargetUserOrGroupName
+If(isAllowed($guest)){continue}
+$line = New-Object -TypeName PSObject
+AddMember $line "User" $i.UserIds
+AddMember $line "Guest" $guest
+AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ") 
+AddMember $line "Operation" "Site Shared" 
+AddMember $line "SharedItem" $AuditData.SiteUrl 
+AddMember $line "LogId" $AuditData.CorrelationId 
+AddMember $line "AdditionalData" $AuditData.EventData 
+$csv+=$line
 }
 "Unallowed site sharing activities since $Start"+": "+$csv.count
 
-#同じ CorrelationID のログをマージ
+#Merge logs with the same CorrelationID
 $GroupedCsv=@()
-foreach($i in ($csv|Group-Object LogId)){
-    $line = $i.Group[0]
-    $AdditionalData=@()
-    foreach($d in $i.Group){
-        $AdditionalData+=$d.AdditionalData
-    }
-    $line.AdditionalData=$AdditionalData -join "`r`n"
-    $GroupedCsv+=$line
+foreach($i in ($csv|Group-Object LogId)){ 
+$line = $i.Group[0] 
+$AdditionalData=@() 
+foreach($d in $i.Group){ 
+$AdditionalData+=$d.AdditionalData 
+} $line.AdditionalData=$AdditionalData -join "`r`n"
+$GroupedCsv+=$line
 }
 "Unallowed site sharing activities merged since $Start"+": "+$GroupedCsv.count
 
-#2.ファイルを直接ゲスト ユーザーに共有する操作のログの取得
+#2. Obtain logs for operations where files are shared directly with guest users
 $output=@()
 ExtractAuditLog "SharePointSharingOperation" "AddedToSecureLink"
 
-#結果がNullでなければ、まずは結果は1個とし、結果が複数個返されている場合には、そのカウントを取得
+#If the result is not null, first count one result. If multiple results are returned, obtain their count.
 $count=0
 if($output -ne $null){$count=1}
 if($output.count -ne $null){$count=$output.count}
@@ -169,42 +166,42 @@ if($output.count -ne $null){$count=$output.count}
 
 $count=0
 foreach($i in $output){
-    $AuditData=$i.AuditData|ConvertFrom-Json
-    #ゲスト以外への共有や、許可されたドメインのゲストへの共有は除く
-    If($AuditData.TargetUserOrGroupType -ne "Guest" ){continue}
-    $guest=ExtractGuest $AuditData.TargetUserOrGroupName
-    If(isAllowed($guest)){continue}
-    $line = New-Object -TypeName PSObject
-    AddMember $line "User" $i.UserIds
-    AddMember $line "Guest" $guest
-    AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
-    AddMember $line "Operation" "File Shared"
-    AddMember $line "SharedItem" $AuditData.ObjectId
-    AddMember $line "LogId" $AuditData.CorrelationId
-    AddMember $line "AdditionalData" $AuditData.EventData
-    $GroupedCsv+=$line
-    $count++
+$AuditData=$i.AuditData|ConvertFrom-Json
+#Excludes sharing to non-guests and guests from allowed domains.
+If($AuditData.TargetUserOrGroupType -ne "Guest" ){continue}
+$guest=ExtractGuest $AuditData.TargetUserOrGroupName
+If(isAllowed($guest)){continue}
+$line = New-Object -TypeName PSObject
+AddMember $line "User" $i.UserIds
+AddMember $line "Guest" $guest
+AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
+AddMember $line "Operation" "File Shared"
+AddMember $line "SharedItem" $AuditData.ObjectId
+AddMember $line "LogId" $AuditData.CorrelationId
+AddMember $line "AdditionalData" $AuditData.EventData
+$GroupedCsv+=$line
+$count++
 }
 "Unallowed file sharing activities since $Start"+": "+$count
 
-#1と2で共通する CorrelationID のログをFile Shared 優先でマージ
+Merge logs with the same CorrelationID in #1 and #2, prioritizing File Shared.
 $GroupedCsv2=@()
 foreach($i in ($GroupedCsv|Group-Object LogId)){
-    $line = $i.Group[0]
-　　$AdditionalData=@()
-    foreach($j in $i.Group){
-		$AdditionalData+=$j.AdditionalData
-	    if($j.Operation -eq "File Shared"){$line=$j}
-    }
-    $line.AdditionalData=$AdditionalData -join "`r`n"
-    $GroupedCsv2+=$line
+$line = $i.Group[0]
+$AdditionalData=@()
+foreach($j in $i.Group){
+$AdditionalData+=$j.AdditionalData
+if($j.Operation -eq "File Shared"){$line=$j}
+}
+$line.AdditionalData=$AdditionalData -join "`r`n"
+$GroupedCsv2+=$line
 }
 "Unallowed total sharing activities since $Start"+": "+$GroupedCsv2.count
 
-#3.既存グループへのゲスト ユーザーの追加操作のログの取得
+#3. Obtaining logs for adding guest users to an existing group
 $output=@()
 ExtractAuditLog "AzureActiveDirectory" "Add member to group."
-#結果がNullでなければ、まずは結果は1個とし、結果が複数個返されている場合には、そのカウントを取得
+#If the result is not null, first count one result. If multiple results are returned, obtain their count.
 $count=0
 if($output -ne $null){$count=1}
 if($output.count -ne $null){$count=$output.count}
@@ -213,110 +210,111 @@ Disconnect-ExchangeOnline -Confirm:$false
 
 $count=0
 foreach($i in $output){
-    $AuditData=$i.AuditData|ConvertFrom-Json
-    #ゲスト以外の追加は除く
-    If(!$AuditData.ObjectId.Contains("#EXT#")){continue}
-    $guest=ExtractGuest $AuditData.ObjectId
-    If(isAllowed($guest)){continue}
-    $line = New-Object -TypeName PSObject
-    AddMember $line "User" $i.UserIds
-    AddMember $line "Guest" $guest
-    AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
-    AddMember $line "Operation" "Guest Added to Group"
-    AddMember $line "SharedItem" $AuditData.ModifiedProperties[1].NewValue
-    AddMember $line "LogId" $AuditData.ID
-    AddMember $line "AdditionalData" $AuditData.ModifiedProperties[0].NewValue
-    $count++
-    $GroupedCsv2+=$line
+$AuditData=$i.AuditData|ConvertFrom-Json
+#Excludes additions other than guests.
+If(!$AuditData.ObjectId.Contains("#EXT#")){continue}
+$guest=ExtractGuest $AuditData.ObjectId 
+If(isAllowed($guest)){continue} 
+$line = New-Object -TypeName PSObject 
+AddMember $line "User" $i.UserIds 
+AddMember $line "Guest" $guest 
+AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ") 
+AddMember $line "Operation" "Guest Added to Group" 
+AddMember $line "SharedItem" $AuditData.ModifiedProperties[1].NewValue 
+AddMember $line "LogId" $AuditData.ID 
+AddMember $line "AdditionalData" $AuditData.ModifiedProperties[0].NewValue 
+$count++ 
+$GroupedCsv2+=$line
 }
 "Unallowed adding member activities since $Start"+": "+$count
 
-#現在のリスト アイテムと重複するものは削除してアップロードしない
+#Remove duplicates of current list items and do not upload them
 $CAML="<Query><Where><Geq><FieldRef Name='Time'/><Value Type='DateTime' IncludeTimeValue='TRUE'>$Start</Value></Geq></Where></Query>"
 $GroupedCsv2 = {$GroupedCsv2}.Invoke()
 foreach($item in (Get-PnPListItem -list $SharingActivitiesList -PageSize 1000 -Query $CAML)){
-    $target=-1
-    for($i=0;$i -lt $GroupedCsv2.count;$i++){
-        if($GroupedCsv2[$i].LogId -eq $item.FieldValues["Title"]){
-            $target=$i
-            continue
-        }
-    }
-    if($target -ge 0){
-        $GroupedCsv2.RemoveAt($target)
-    }
+$target=-1
+for($i=0;$i -lt $GroupedCsv2.count;$i++){
+if($GroupedCsv2[$i].LogId -eq $item.FieldValues["Title"]){
+$target=$i
+continue
+}
+}
+if($target -ge 0){
+$GroupedCsv2.RemoveAt($target)
+}
 }
 "Newly identified total sharing activities since $Start"+": "+$GroupedCsv2.count
 
-#リスト側にない検索結果はリストアイテムとして新規に登録する
-#Add-PnPListItemのBatch処理だとUTCでタイムスタンプが書き込めなかったためCSOMを利用
+#Add search results not in the list as new list items
+#Used CSOM because batch processing of Add-PnPListItem did not allow writing timestamps in UTC.
 $ctx=get-pnpcontext
 $list = $ctx.get_web().get_lists().getByTitle($SharingActivitiesList)
 $count=0
 foreach($item in $GroupedCsv2){
-    $lic = New-Object Microsoft.SharePoint.Client.ListItemCreationInformation
-    $i = $list.AddItem($lic)
-    $i.set_item("Title", $item.LogId)
-    $i.set_item("User", $item.User)
-    $i.set_item("Guest", $item.Guest)
-    $i.set_item("Time", $item.Time)
-    $i.set_item("Operation", $item.Operation)
-    $i.set_item("SharedItem", $item.SharedItem)
-    $i.set_item("AdditionalData", $item.AdditionalData)
-    $i.update()
-    $count++
+$lic = New-Object Microsoft.SharePoint.Client.ListItemCreationInformation
+$i = $list.AddItem($lic)
+$i.set_item("Title", $item.LogId)
+$i.set_item("User", $item.User)
+$i.set_item("Guest", $item.Guest)
+$i.set_item("Time", $item.Time)
+$i.set_item("Operation", $item.Operation)
+$i.set_item("SharedItem", $item.SharedItem)
+$i.set_item("AdditionalData", $item.AdditionalData)
+$i.update()
+$count++
 #If there are many writes, reflect them per 100 items
-    if($count % 100 -eq 0){
-        $ctx.ExecuteQuery()}
+if($count % 100 -eq 0){
+$ctx.ExecuteQuery()}
 }
 $ctx.ExecuteQuery()
-"File sharing activities were synched with the list."
+"File sharing activities were synchronized with the list."
 Disconnect-PnPOnline
 ```
 
-## 3. Power Automate によるメール通知の設定
-1. SharingActivities のリストのメニューの統合から Power Automate を選択し、フローの作成を選択
-1. "新しい SharePoint リスト アイテムが追加されたらカスタマイズされたメールを送信する"のフローを選択しフローを作成する
-1. 編集から"Get My profile (V2)" および "Send Email" のステップを削除する
-1. 新しいステップで "コントロール" の "条件" を追加する
-1. 条件の値で、動的なコンテンツの "User" を指定し、"次の値を含む"、"#ext#" という条件を設定する   
-   (共有操作を行ったのが外部ユーザーであれば、メール通知を本人に行わないようにして、決まった管理者にメール通知する)
-1. "はいの場合" に "Outlook" の "メールの送信 (V2)" のアクションを追加する
-1. 宛先に管理者のメールアドレスを設定する
-1. 件名に "ゲスト ユーザーによる承認されていないドメインへの共有" と入力する
-1. 本文におおよそ以下の内容を記載する([] は動的なコンテンツでリスト列を参照する)   
-ゲスト ユーザーによる承認されていないドメインへの共有が行われました。   
-内容を確認して下さい。   
-ユーザー: [User]   
-時間(UTC): [Time]   
-共有されたアイテム: [SharedItem]   
-共有先: [Guest]   
+## 3. Setting up email notifications using Power Automate
+1. From the SharingActivities list menu, select Power Automate from the Integrations menu and select Create Flow.
+1. Select the "Send a customized email when a new SharePoint list item is added" flow and create it.
+1. Delete the "Get My Profile (V2)" and "Send Email" steps from the edit menu.
+1. Add a "Condition" to the "Control" section of the new step.
+1. Specify the dynamic content "User" as the condition value, and set the conditions "Contains" and "#ext#".
+(If the sharing operation is performed by an external user, the email notification will not be sent to the user, but will be sent to a designated administrator.)
+1. Add an "Outlook" "Send Email (V2)" action to the "If Yes" step.
+1. Set the administrator's email address as the recipient.
+1. Enter "Guest user sharing to unauthorized domain" in the subject line.
+1. Include approximately the following content in the body of the message ([ ] refers to a list column in the dynamic content):
+A guest user shared to an unauthorized domain.
+Please confirm the content.
+User: [User]
+Time (UTC): [Time]
+Shared Item: [SharedItem]
+To: [Guest]
 
-1. "いいえの場合" セクションに "上司の取得 (V2)"のアクションを追加する
-　 (社内ユーザーによる共有の場合、To に共有を行った社内ユーザー、CC のその上司を入れてメール通知する)
-1. "User (UPN)" に動的なコンテンツでリスト列の [User] を追加する
-1. 続いて "Outlook" の "メールの送信 (V2)" のアクションを追加する
-1. 宛先に動的なコンテンツでリスト列の [User] を指定する
-1. 件名に"承認されていないドメインへの共有"と入力する
-1. "Show advanced options" をクリックして、"CC" に動的なコンテンツで上司となる [Mail] を追加する
-1. 本文におおよそ以下の内容を記載する([] は動的なコンテンツでリスト列を参照する)   
-承認されていないドメインへの共有が行われました。意図しない共有の場合は、共有を解除ください。   
-業務上必要な操作の場合には、Help Desk に連絡し、ドメインの許可を申請してください。  
-ユーザー: [User]   
-時間(UTC): [Time]   
-共有されたアイテム: [SharedItem]   
-共有先: [Guest]   
+1. Add the "Get Manager (V2)" action to the "If No" section.
 
-1. 後ろに新しいステップを追加し、"項目の更新" のアクションを追加する
-1. サイトのアドレスで、"Customnotification" のサイトを指定し、リスト名で "SharingActivities" を指定する
-1. ID を動的なコンテンツでリスト列の [ID] を指定する
-1. タイトルを動的なコンテンツでリスト列の [タイトル] を指定する
-1. "Notified" を "はい" に指定する
-1. フローを保存する
+(If sharing is with an internal user, send an email notification with the internal user who shared in the "To" field and their manager in the "CC" field.)
+1. Add the list column [User] in the "User (UPN)" dynamic content.
+1. Next, add the "Send Email (V2)" action for "Outlook."
+1. Specify the list column [User] in the "To" dynamic content.
+1. Enter "Sharing to Unauthorized Domain" in the subject line.
+1. Click "Show advanced options" and add the manager [Mail] in the "CC" dynamic content.
+1. Include approximately the following content in the body of the email ([ ] refers to a list column in the dynamic content):
+Sharing to an unauthorized domain has occurred. If this was unintentional, please unshare the email.
+If this is a business-related operation, please contact the Help Desk and request domain permission.
+User: [User]
+Time (UTC): [Time]
+Shared Item: [SharedItem]
+Shared To: [Guest]
 
-### 設定後の Power Automte フローの全体
+1. Add a new step after this and add an "Update Item" action.
+1. Specify the "CustomNotification" site in the site address field and "SharingActivities" in the list name field.
+1. Specify the ID as the list column's [ID] using dynamic content.
+1. Specify the title as the list column's [Title] using dynamic content.
+1. Set "Notified" to "Yes."
+1. Save the flow.
+
+### Full Power Automate flow after configuration.
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Notification7.png"/>
 
-### 送信されるメール通知例
+### Example of an email notification sent.
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Notification3.png"/>
-その他、Power Automate では、共有メールボックスを作成し、代理人として送信の権限を付与することで、共有メールボックスのアカウントを送信元としたメール通知も可能。
+In addition, Power Automate allows you to create a shared mailbox and grant "send on behalf" permissions to send email notifications from the shared mailbox account.

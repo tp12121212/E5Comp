@@ -1,18 +1,16 @@
-# ファイル操作に関する各サービスでのログの違い
-これらは、すべて MSSense.exe が実体である、Defender for Endpoint と同じセンサーを利用するが、監視の目的の違いから各サービスの UI で確認できるログについて違いがある。
-- Defender for Endpoint: 主にサイバー攻撃を検知するための仕組みであり、プロセス、通信、レジストリなどに特化した監視を行う。
-- Endpoint DLP: 広範にポリシーを設定してユーザー全体を監視し、端末における全般的な情報の持ち出しを監視・制御する仕組み。
-- Insider Risk Managment: ファイル操作の絶対量や、退職予定、個別の指定などにより、リスクが高いと判定されたユーザーの操作を後日改めて定量的に分析する仕組み。ポリシーなどにはよらず機密情報が含まれるファイルを主に対象とする。
+# Differences in file operation logs between each service
+All of these services use the same sensor as Defender for Endpoint, which is represented by MSSense.exe. However, due to differences in monitoring purposes, the logs available in each service's UI differ.
+- Defender for Endpoint: A system primarily designed to detect cyberattacks, specializing in monitoring processes, communications, the registry, and more.
+- Endpoint DLP: A system that sets broad policies to monitor all users and monitors and controls general information export from devices.
+- Insider Risk Management: A system that quantitatively analyzes the operations of users deemed high risk based on factors such as the absolute volume of file operations, planned retirement, and individual specifications. It primarily targets files containing confidential information, regardless of policies.
 
-## 一連の情報漏えい操作時のログの出方
-| 操作 | Defender for Endpoint Timeline | Endpoint DLP の Activity Explorer | Insider Risk Management での Activity Explorer |
+## Log output for a series of information leakage operations
+| Operations | Defender for Endpoint Timeline | Activity Explorer in Endpoint DLP | Activity Explorer in Insider Risk Management |
 | ---- | ------------ | ------------- | ------------- |
-| 1.社内ファイル サーバーからのファイル ダウンロード | 〇2 つのログ<br> explorer.exe created file xxx.txt<br>xxx.txt, file observed on host を記録 <br>(条件：MDE の監視対象のファイル) | 〇 File created のログを記録 <br>(条件: Endpoint DLP の監視対象のファイル + ポリシーで指定された拡張子のファイル) | 〇 Sensitive File created のログを記録 <br>(条件: 何等かの機密情報が含まれている場合)|
-| 2.ダウンロードしたファイルを WinRAR.exe などの圧縮ソフトで読み取り | × 特にログ記録なし | 〇 File accessed by unallowed app のログを記録 <br>(条件: DLP ポリシーで指定された機密情報を含むファイルの参照で Unallowed apps に指定された exe からのアクセス) | 〇 Sensitive File Read のログを記録 <br>(条件: 何等かの機密情報が含まれている場合で全 exe が対象)|
-| 3.WinRar.exe などの圧縮ソフトから分割した RAR ファイルを生成 | 〇 WinRAR.exe created file xxx.part01.rar, WinRAR.exe created file xxx.part02.rar のログを記録 | 〇 File created xxx.part01.rar, File created xxx.part02.rar のログを記録 | × 特にログ記録なし |
-| 4.外部の Web サイトに RAR ファイルをアップロード | × 特にログ記録なし | 〇 FileUploadedToCloud のログを記録 <br>(条件: Endpoint DLP の監視対象のファイル + ポリシーで指定された拡張子のファイルで、Edge もしくはアドオンを入れた Chrome 経由でのアップロード)| 〇 File copied to cloud のログを記録 <br>(条件: Edge およびアドオンを入れた Chrome 経由)|
-
-## Defender for Endpoint の FileCreated イベントで確認されたファイル拡張子
+| 1. Downloading a file from an internal file server | 〇 Two logs recorded: explorer.exe created file xxx.txt<br>xxx.txt, file observed on host <br> (Condition: MDE-monitored file) | 〇 File created log recorded <br> (Condition: Endpoint DLP-monitored file + file with a policy-specified extension) | 〇 Sensitive file created log recorded <br> (Condition: Contains any sensitive information) | | | 2. Reading the downloaded file with compression software such as WinRAR.exe | × No specific log recorded | 〇 File accessed by unallowed app log recorded <br> (Condition: Accessing a file containing sensitive information specified in the DLP policy, but using an exe specified in Unallowed Apps) (Access from) | 〇 Records Sensitive File Read logs <br> (Condition: All exe files are targeted if they contain any sensitive information) |
+| 3. Generating split RAR files from compression software such as WinRar.exe | 〇 Records WinRAR.exe created file xxx.part01.rar and WinRAR.exe created file xxx.part02.rar logs | 〇 Records File created xxx.part01.rar and File created xxx.part02.rar logs | × No specific logs |
+| 4. Uploading RAR files to external websites | × No specific logs | 〇 Records FileUploadedToCloud logs <br> (Condition: Files monitored by Endpoint DLP + files with extensions specified by policy, uploaded via Edge or Chrome with the add-on) | 〇 Records File copied to cloud logs <br> (Condition: Via Edge or Chrome with the add-on) |
+## Defender for Endpoint FileCreated File extensions observed in the event
 + .4io
 + .7z
 + .asax
@@ -73,28 +71,27 @@
 + .xlsx
 + .zip
 
+## Endpoint DLP Monitored Files
++ Word Files
++ PowerPoint Files
++ Excel Files
++ PDF Files
++ .csv Files
++ .tsv Files
++ .txt Files
++ .rtf Files
++ .c Files
++ .class Files
++ .cpp Files
++ .cs Files
++ .h Files
++ .java Files
++ .zip Files
++ .rar Files
++ .tar Files
++ .lzh Files
 
-## Endpoint DLP の監視対象ファイル
-+ Word ファイル
-+ PowerPoint ファイル
-+ Excel ファイル
-+ PDF ファイル
-+ .csv ファイル
-+ .tsv ファイル
-+ .txt ファイル
-+ .rtf ファイル
-+ .c ファイル
-+ .class ファイル
-+ .cpp ファイル
-+ .cs ファイル
-+ .h ファイル
-+ .java ファイル
-+ .zip ファイル
-+ .rar ファイル
-+ .tar ファイル
-+ .lzh ファイル
-
-## Endpoint DLP の Activity Explorer で拡張子を指定することで FileUploadedToCloud が確認できたファイル拡張子 (おそらく全ファイル種別)
+## Endpoint DLP Activity File extensions where FileUploadedToCloud was confirmed by specifying the extension in Explorer (probably all file types)
 + .cab
 + .csv
 + .docx
@@ -115,8 +112,7 @@
 + .txt
 + .zip
 
-
-## Insider Risk Manament の Activity Explorer で Sensitive File Read および Sensitive File Created が確認できたファイル拡張子
+## File extensions where Sensitive File Read and Sensitive File Created were confirmed in Insider Risk Management's Activity Explorer
 + .asd
 + .docx
 + .dotx
@@ -127,7 +123,7 @@
 + .txt
 + .xlsx
 
-## Insider Risk Manament の Activity Explorer で File Upload To Cloud が確認できたファイル拡張子 (おそらく全ファイル種別)
+## File extensions where File Upload To Cloud was confirmed in Insider Risk Management's Activity Explorer (Probably all file types)
 + .cab
 + .csv
 + .docx

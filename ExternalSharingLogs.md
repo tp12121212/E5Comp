@@ -1,38 +1,36 @@
-# B2B コラボレーションを中心とした外部共有のログの確認
-各種 Office 365 の SharePoint Online や OneDrive for Business の DLP 機能で、外部に機密情報等を共有した際、ブロックや警告を行うことは可能です。
-ただ、DLP では、どういったファイルが DLP のポリシーに合致したかまでは把握することができるものの、メールを除いて、
-どのドメインの外部ユーザーに共有したかまでは具体的にトラッキングしないため、外部共有を許可する前提の場合、ログから外部共有先を把握したいというニーズもあるかと思います。
-そこで、このスクリプトでは、以下の 3 つの操作を対象に共有先のゲスト ユーザーを含め外部共有に関するログを CSV 形式で抽出します。
-1. SharePoint Online / OneDriver for Business のサイトでゲスト ユーザーを SharePoint グループに追加し権限を付与する操作
+# Checking external sharing logs, primarily for B2B collaboration
+The DLP features of Office 365's SharePoint Online and OneDrive for Business can block or warn users when confidential information is shared externally.
+However, while DLP can identify which files meet DLP policies, it does not specifically track which domains external users shared with, with the exception of email. Therefore, even if external sharing is permitted, you may still need to know who shared with whom from the logs.
+This script extracts external sharing logs in CSV format, including guest users, for the following three operations: 1. Adding a guest user to a SharePoint group and granting permissions on a SharePoint Online / OneDriver for Business site
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Log1.png">
-2. SharePoint Online / OneDriver for Business でファイルを直接ゲスト ユーザーに共有する操作
+2. Sharing a file directly to a guest user on SharePoint Online / OneDriver for Business
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Log2.png">
-3. 既存グループへのゲスト ユーザーの追加
+3. Adding a guest user to an existing group
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/Log3.png">
 
-ただし、上記ログは、Azure AD B2B Federation を前提とした操作のみを対象としているため、
-B2B Direct を利用する Teams Connect や、匿名リンクなどは対象外となります。
+However, the above logs only cover operations that require Azure AD B2B Federation.
+They do not cover operations such as Teams Connect, which uses B2B Direct, or anonymous links.
 
-本ページのスクリプトでは、ログの取得はそれぞれの操作につき、最大 5,000 件の範囲を対象としていますが、5,000 件を超えるログの取得については合わせて[こちら](https://github.com/YoshihiroIchinose/E5Comp/blob/main/Office365Audit.md)を参照ください。その他 SharePoint の共有操作に関する UI ベースでの監査ログの確認については、[こちら](https://learn.microsoft.com/ja-jp/microsoft-365/compliance/audit-log-sharing?view=o365-worldwide)を参考にしてください。
-## スクリプト
+The script on this page retrieves up to 5,000 logs for each operation, but for retrieving more than 5,000 logs, please also refer to [here](https://github.com/YoshihiroIchinose/E5Comp/blob/main/Office365Audit.md). For information on checking UI-based audit logs for other SharePoint sharing operations, please refer to [here](https://learn.microsoft.com/ja-jp/microsoft-365/compliance/audit-log-sharing?view=o365-worldwide).
+## Script
 ```
-#接続に利用するID / パスワード
+#ID/Password to use for connection
 $Id="xxx@xxx.onmicrosoft.com"
 $Password = "xxxxx"
 
-#変数
+#Variables
 $Startdate="2023/01/01"
 $Enddate="2023/03/08"
 $OutputFolder=[System.Environment]::GetFolderPath("Desktop")+"\"
 
-#Credentialの生成
+#Credential Generation
 $SecPass=ConvertTo-SecureString -String $Password -AsPlainText -Force
 $Credential= New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Id, $SecPass
 
 Import-Module ExchangeOnlineManagement
 Connect-ExchangeOnline -credential $Credential
 
-#1. ゲスト ユーザーを SharePoint グループに追加し権限を付与する操作のログ
+#1. Adding a Guest User to SharePoint Log of operations for adding users to a group and granting permissions
 $RecordType="SharePointSharingOperation"
 $Operation="AddedToGroup"
 $output=Search-UnifiedAuditLog -RecordType $RecordType -StartDate $Startdate -EndDate $Enddate -Operations $Operation -ResultSize 5000 -SessionCommand ReturnNextPreviewPage|?{$_.UserIds -ne "app@sharepoint"}
@@ -40,24 +38,24 @@ $output=Search-UnifiedAuditLog -RecordType $RecordType -StartDate $Startdate -En
 $csv=@()
 foreach($row in $output){
 $JsonRaw=$row.AuditData|ConvertFrom-Json
-#ゲスト以外の追加は除く
+#Excludes non-guest additions
 If($JsonRaw.TargetUserOrGroupType -ne "Guest" ){continue}
 $data=$row |select UserIds,Operations,CreationDate
-add-member -InputObject $data -NotePropertyName CorrelationId  -NotePropertyValue $JsonRaw.CorrelationId
-add-member -InputObject $data -NotePropertyName SiteUrl  -NotePropertyValue $JsonRaw.SiteUrl
-add-member -InputObject $data -NotePropertyName EventData  -NotePropertyValue $JsonRaw.EventData
+add-member -InputObject $data -NotePropertyName CorrelationId -NotePropertyValue $JsonRaw.CorrelationId
+add-member -InputObject $data -NotePropertyName SiteUrl -NotePropertyValue $JsonRaw.SiteUrl
+add-member -InputObject $data -NotePropertyName EventData -NotePropertyValue $JsonRaw.EventData
 $GuestId=$JsonRaw.TargetUserOrGroupName
-If($GuestId.Contains("#ext#"))
-	{$GuestId=$GuestId.Substring(0,$GuestId.IndexOf("#ext#")).replace("_","@")}
-add-member -InputObject $data -NotePropertyName TargetUserOrGroupName  -NotePropertyValue $GuestId
+If($GuestId.Contains("#ext#")) 
+{$GuestId=$GuestId.Substring(0,$GuestId.IndexOf("#ext#")).replace("_","@")}
+add-member -InputObject $data -NotePropertyName TargetUserOrGroupName -NotePropertyValue $GuestId
 $csv+=$data
 }
 
-#CSV ファイルとして出力
+#Output as CSV file
 $filePath=$OutputFolder+"SPO_AddedToGroup"+(Get-Date -Format "yyyyMMdd-HHmm")+".csv"
-$csv|Export-csv -Path $filePath  -Encoding UTF8 -NoTypeInformation
+$csv|Export-csv -Path $filePath -Encoding UTF8 -NoTypeInformation
 
-#2.ファイルを直接ゲスト ユーザーに共有する操作のログ
+#2. Log of File Sharing Operations Directly with Guest Users
 $RecordType="SharePointSharingOperation"
 $Operation="AddedToSecureLink"
 $output=Search-UnifiedAuditLog -RecordType $RecordType -StartDate $Startdate -EndDate $Enddate -Operations $Operation -ResultSize 5000 -SessionCommand ReturnNextPreviewPage
@@ -65,24 +63,24 @@ $output=Search-UnifiedAuditLog -RecordType $RecordType -StartDate $Startdate -En
 $csv=@()
 foreach($row in $output){
 $JsonRaw=$row.AuditData|ConvertFrom-Json
-#ゲスト以外への共有は除く
+#Exclude sharing with non-guests
 If($JsonRaw.TargetUserOrGroupType -ne "Guest" ){continue}
 $data=$row |select UserIds,Operations,CreationDate
-add-member -InputObject $data -NotePropertyName CorrelationId  -NotePropertyValue $JsonRaw.CorrelationId
-add-member -InputObject $data -NotePropertyName FileUrl  -NotePropertyValue $JsonRaw.ObjectId
-add-member -InputObject $data -NotePropertyName EventData  -NotePropertyValue $JsonRaw.EventData
+add-member -InputObject $data -NotePropertyName CorrelationId -NotePropertyValue $JsonRaw.CorrelationId
+add-member -InputObject $data -NotePropertyName FileUrl -NotePropertyValue $JsonRaw.ObjectId
+add-member -InputObject $data -NotePropertyName EventData -NotePropertyValue $JsonRaw.EventData
 $GuestId=$JsonRaw.TargetUserOrGroupName
-If($GuestId.Contains("#ext#"))
-	{$GuestId=$GuestId.Substring(0,$GuestId.IndexOf("#ext#")).replace("_","@")}
-add-member -InputObject $data -NotePropertyName TargetUserOrGroupName  -NotePropertyValue $GuestId
+If($GuestId.Contains("#ext#")) 
+{$GuestId=$GuestId.Substring(0,$GuestId.IndexOf("#ext#")).replace("_","@")}
+add-member -InputObject $data -NotePropertyName TargetUserOrGroupName -NotePropertyValue $GuestId
 $csv+=$data
 }
 
-#CSV ファイルとして出力
+#CSV Output as a file
 $filePath=$OutputFolder+"SPO_AddedToSecureLink"+(Get-Date -Format "yyyyMMdd-HHmm")+".csv"
-$csv|Export-csv -Path $filePath  -Encoding UTF8 -NoTypeInformation
+$csv|Export-csv -Path $filePath -Encoding UTF8 -NoTypeInformation
 
-#3.既存グループへのゲスト ユーザーの追加操作のログ
+#3. Log of guest user addition to an existing group
 $RecordType="AzureActiveDirectory"
 $Operation="Add member to group."
 $output=Search-UnifiedAuditLog -RecordType $RecordType -StartDate $Startdate -EndDate $Enddate -Operations $Operation
@@ -90,17 +88,17 @@ $output=Search-UnifiedAuditLog -RecordType $RecordType -StartDate $Startdate -En
 $csv=@()
 foreach($row in $output){
 $JsonRaw=$row.AuditData|ConvertFrom-Json
-#ゲスト以外の追加は除く
+#Excludes non-guest additions
 If(!$JsonRaw.ObjectId.Contains("#EXT#")){continue}
 $data=$row |select UserIds,Operations,CreationDate
-add-member -InputObject $data -NotePropertyName LogID  -NotePropertyValue $JsonRaw.ID
-add-member -InputObject $data -NotePropertyName GroupName  -NotePropertyValue $JsonRaw.ModifiedProperties[1].NewValue
-add-member -InputObject $data -NotePropertyName GroupID  -NotePropertyValue $JsonRaw.ModifiedProperties[0].NewValue
+add-member -InputObject $data -NotePropertyName LogID -NotePropertyValue $JsonRaw.ID
+add-member -InputObject $data -NotePropertyName GroupName -NotePropertyValue $JsonRaw.ModifiedProperties[1].NewValue
+add-member -InputObject $data -NotePropertyName GroupID -NotePropertyValue $JsonRaw.ModifiedProperties[0].NewValue
 $AddedGuest=$JsonRaw.ObjectId.Substring(0,$JsonRaw.ObjectId.IndexOf("#EXT#")).replace("_","@")
-add-member -InputObject $data -NotePropertyName AddedGuest  -NotePropertyValue $AddedGuest
+add-member -InputObject $data -NotePropertyNameAddedGuest -NotePropertyValue $AddedGuest
 $csv+=$data
 }
 $csv|Export-csv -Path ($OutputFolder+"AAD_AddedToGroup"+(Get-Date -Format "yyyyMMdd-HHmm")+".csv") -Encoding UTF8 -NoTypeInformation
 
 Disconnect-ExchangeOnline -Confirm:$false
-```
+````

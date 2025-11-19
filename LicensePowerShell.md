@@ -1,13 +1,13 @@
-# サービス プランの割り当て状況に応じたセキュリティ グループのメンテナンス
-ライセンスを細分化したアプリ単位となるサービス プランの割り当て状況に応じたセキュリティ グループのメンテナンスを実施する PowerShel スクリプトのサンプルです。
-このスクリプトでは、現在のグループ メンバーシップとの差分を確認しながら、"INTUNE_A"のサービス プランが割り当てられている社内ユーザーを、"With_INTUNE_A"というセキュリティ グループに登録し、割り当てられていないユーザーを"Without_INTUNE_A"というセキュリティ グループに登録します。セキュリティ グループが事前に作成されていない場合、セキュリティ グループを新規作成します。＄PlanNameの変数を他のサービス プランに書き換えて利用することも可能です。なおライセンスの SKU や、各 SKU に含まれるサービス プランについては、[こちら](https://docs.microsoft.com/ja-jp/azure/active-directory/enterprise-users/licensing-service-plan-reference) に記載があります。各ポリシーや機能をグループに応じて展開する場合、コミュニケーション コンプライアンスなどのように、機能によっては、本件のセキュリティ グループではなく、配布グループを利用する必要があったりしますので、その点は注意ください。
+# Maintaining Security Groups Based on Service Plan Assignment
+This is a sample PowerShell script that maintains security groups based on the assignment of service plans, which are application-level licenses.
+This script checks the difference from the current group membership and adds internal users assigned the "INTUNE_A" service plan to a security group called "With_INTUNE_A." It also adds unassigned users to a security group called "Without_INTUNE_A." If a security group has not been created in advance, a new one will be created. You can also use a different service plan by replacing the $PlanName variable. For information on license SKUs and the service plans included in each SKU, see [here](https://docs.microsoft.com/en-us/azure/active-directory/enterprise-users/licensing-service-plan-reference). Please note that when deploying policies and features according to groups, some features, such as communication compliance, require you to use distribution groups rather than security groups.
 
-# 接続と ライセンス (SKU) とサービス プランの確認
+# Verify connection, license (SKU), and service plan
 ```
 $Id="xxxx@xxxx.onmicrosoft.com"
 $Password = "xxxx"
 
-#Credentialの生成
+# Generate credentials
 $SecPass=ConvertTo-SecureString -String $Password -AsPlainText -Force
 $Credential= New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Id, $SecPass
 
@@ -18,91 +18,91 @@ $skus=Get-AzureADSubscribedSku
 $target=@()
 $spid=""
 
-#ServicePlan名から該当のSKU ID(複数ありうる)と、ServicePlanのIDを取得
+# Obtain the corresponding SKU ID (there may be multiple) and Service Plan ID from the Service Plan name
 foreach($sku in $skus){
-  foreach($sp in $sku.ServicePlans){
-	if($sp.ServicePlanName -eq $PlanName){
-	 $target+=$sku.SkuId
-	$spid=$sp.ServicePlanId
-	}
-  }
+foreach($sp in $sku.ServicePlans){
+if($sp.ServicePlanName -eq $PlanName){
+$target+=$sku.SkuId
+$spid=$sp.ServicePlanId
+}
+}
 }
 ```
-## ライセンス保有状況に応じた社内メンバーのグループのメンテナンス
+## Maintaining internal member groups based on license ownership
 ```
-#対象となるセキュリティ グループ名
+#Target security group name
 $LicencedGroup="With_$PlanName"
 
-#ライセンスがあるユーザーの取得(対象となる SKU が割り当たっていて、該当のサービス プランが無効化されていないユーザー)
+#Get licensed users (users who have the target SKU assigned and the corresponding service plan is not disabled)
 $licensedUsers=@()
 $users=Get-AzureADUser -All $true -Filter "userType eq 'Member'"
 foreach($u in $users){
-	foreach($al in $u.AssignedLicenses){
-	if($target.Contains($al.SkuId) -and !$al.DisabledPlans.Contains($spid)){
-			$licensedUsers+=$u
-			break
-		}
-	}
+foreach($al in $u.AssignedLicenses){
+if($target.Contains($al.SkuId) -and !$al.DisabledPlans.Contains($spid)){
+$licensedUsers+=$u
+break
+}
+}
 }
 
-#ライセンスがあるユーザーのグループをメンテナンス
+#Maintain licensed user groups
 $lg=Get-AzureADGroup -Filter "DisplayName eq '$LicencedGroup'"
 if($lg -eq $null){
-	$lg=New-AzureADGroup -SecurityEnabled $true -MailEnabled $false -MailNickName $LicencedGroup -DisplayName $LicencedGroup
+$lg=New-AzureADGroup -SecurityEnabled $true -MailEnabled $false -MailNickName $LicencedGroup -DisplayName $LicencedGroup
 }
 
 $mem=Get-AzureADGroupMember -All $true -ObjectId $lg.ObjectId
-#グループからライセンスがなくなったユーザーを削除
+#Remove users who no longer have licenses from the group
 foreach($m in $mem){
-	if(!$licensedUsers.Contains($m)){
-		Remove-AzureADGroupMember  -ObjectId $lg.ObjectId -MemberId $m.ObjectId
-	}
+if(!$licensedUsers.Contains($m)){
+Remove-AzureADGroupMember -ObjectId $lg.ObjectId -MemberId $m.ObjectId
+}
 }
 
-#グループに登録されていないライセンスがあるユーザーを追加
+#Add licensed users who are not registered in the group
 foreach($lu in $licensedUsers){
-	if($mem -eq $null -or !$mem.Contains($lu)){
-		Add-AzureADGroupMember  -ObjectId $lg.ObjectId -RefObjectId $lu.ObjectId
-		}
+if($mem -eq $null -or !$mem.Contains($lu)){
+Add-AzureADGroupMember -ObjectId $lg.ObjectId -RefObjectId $lu.ObjectId
+}
 }
 ```
-## ライセンスを保有していない社内メンバーのグループのメンテナンス
+## Maintain a group of internal members who do not have licenses
 ```
-#対象となるセキュリティ グループ名
+#Target security group name
 $UnLicencedGroup="Without_$PlanName"
 
-#ライセンスがないユーザーの取得
+#Get unlicensed users
 $UsersWoL=@()
 $users=Get-AzureADUser -All $true -Filter "userType eq 'Member'"
 foreach($u in $users){
-	$found=$false
-	foreach($al in $u.AssignedLicenses){
-	if($target.Contains($al.SkuId) -and !$al.DisabledPlans.Contains($spid)){
-			$found=$true
-			break
-		}
-	}
-	if(!$found){$UsersWoL+=$u}
+$found=$false
+foreach($al in $u.AssignedLicenses){
+if($target.Contains($al.SkuId) -and !$al.DisabledPlans.Contains($spid)){
+$found=$true
+break
 }
-#ライセンスがないユーザーのグループをメンテナンス
+}
+if(!$found){$UsersWoL+=$u}
+}
+#Maintain unlicensed user groups
 $ug=Get-AzureADGroup -Filter "DisplayName eq '$UnLicencedGroup'"
 if($ug -eq $null){
-	$ug=New-AzureADGroup -SecurityEnabled $true -MailEnabled $false -MailNickName $UnLicencedGroup -DisplayName $UnLicencedGroup
+$ug=New-AzureADGroup -SecurityEnabled $true -MailEnabled $false -MailNickName $UnLicencedGroup -DisplayName $UnLicencedGroup
 }
 
 $mem=Get-AzureADGroupMember -All $true -ObjectId $ug.ObjectId
-#グループからライセンスが付与されたユーザーを削除
+#Remove licensed users from groups
 foreach($m in $mem){
-	if(!$UsersWoL.Contains($m)){
-		Remove-AzureADGroupMember  -ObjectId $ug.ObjectId -MemberId $m.ObjectId
-	}
+if(!$UsersWoL.Contains($m)){
+Remove-AzureADGroupMember -ObjectId $ug.ObjectId -MemberId $m.ObjectId
+}
 }
 
-#グループにライセンスがなくなったユーザーを追加
-foreach($u in $UsersWoL){
-	if($mem -eq $null -or !$mem.Contains($u)){
-		Add-AzureADGroupMember  -ObjectId $ug.ObjectId -RefObjectId $u.ObjectId
-		}
+#Add unlicensed users to groups
+foreach($u in $UsersWoL){ 
+if($mem -eq $null -or !$mem.Contains($u)){ 
+Add-AzureADGroupMember -ObjectId $ug.ObjectId -RefObjectId $u.ObjectId 
+}
 }
 
-```
+````

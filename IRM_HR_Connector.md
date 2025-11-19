@@ -1,29 +1,29 @@
-# Insider Risk Management の HR Connector に関連したスクリプト
-## Azure Storage にアップロードされた CSV ファイルを、Azure Automation のスクリプトを通じて IRM の HR Connector に取り込む
-1 つめのサンプルは、Azure Storage にアップロードされた CSV ファイルを、Azure Automatino のスクリプトを通じて IRM の HR Connector に取り込むスクリプトです。定期的に HR からの CSV ファイルを Azure Storage にアップロードしさえすれば、オンプレミスの常時稼働サーバーなしに Azure Automation で　HR データの IRM への取り込みをスケジュール化できます。
+# Scripts related to Insider Risk Management's HR Connector
+## Importing CSV files uploaded to Azure Storage into IRM's HR Connector via an Azure Automation script
+The first sample is a script that imports CSV files uploaded to Azure Storage into IRM's HR Connector via an Azure Automatino script. By periodically uploading CSV files from HR to Azure Storage, you can schedule the import of HR data into IRM using Azure Automation without requiring a continuously running on-premises server.
 
-### 事前準備
-1. Azure 上に Storage アカウントを作成し、そこにファイル シェア "hrdata" を作成する
-2. 上記ファイル シェアに、"HR_Resignation.txt"　というファイル名で、 IRM HR Connector で取り込む CSV ファイルを、BOM 付き UTF-8 の形式でアップロードしておく
-3. [こちら](https://github.com/microsoft/m365-compliance-connector-sample-scripts/blob/main/sample_script.ps1)で公開されているスクリプトをメモ帳などに張り付け、BOM 付き UTF-8 の形式で "HRConnector.ps1" という名称で保存する
-4. 上記ファイルを、1 の "hrdata" のファイル シェアにアップロードする
-6. Azure Automation アカウントを作成する
-7. Azure Automation アカウントで、1.のファイル シェアへの接続キーを暗号化された文字列の変数として "storageKey" という名称で保存する
-8. Azure Automation アカウントで、IRM のコネクタ用に Azure AD で登録したアプリケーションの Client Secret を暗号化された文字列の変数として "appSecret" という名称で保存する
-9. Azure Automation アカウントで、Runbook を作成し、ランタイム バージョン 5.1 の PowerShell 形式とする
-10. 上記 Runbook に以下のスクリプトを張りつける
-11. スクリプトの中の $tenantId、$appId、$jobId は環境に合わせて書き換えて、スクリプトを発行する
-12. Runbook の動作を検証し、スクリプトにより CSV のデータ取り込まれたことを確認する
-13. HR から取り込む CSV ファイルを Azure Storage へのアップロード頻度に応じて、Runbook のスケジュール実行を設定する
+### Preparation
+1. Create a storage account in Azure and create a file share named "hrdata" there.
+2. Upload the CSV file to be imported by the IRM HR Connector to the file share named "HR_Resignation.txt" in UTF-8 with BOM format.
+3. Paste the script published here into Notepad or another application and save it as "HRConnector.ps1" in UTF-8 with BOM format.
+4. Upload the above file to the "hrdata" file share named in 1.
+6. Create an Azure Automation account.
+7. In your Azure Automation account, save the connection key to the file share named "storageKey" as an encrypted string variable.
+8. In your Azure Automation account, enter the Client Secret of the application registered in Azure AD for the IRM Connector. Save the encrypted string as a variable named "appSecret."
+9. In your Azure Automation account, create a runbook in PowerShell format with runtime version 5.1.
+10. Paste the following script into the above runbook.
+11. Update the $tenantId, $appId, and $jobId in the script to match your environment and publish the script.
+12. Verify the runbook's operation and confirm that the script successfully imported the CSV data.
+13. Schedule the runbook to run based on the frequency with which the CSV files imported from HR are uploaded to Azure Storage.
 
-### Azure Automation に登録するスクリプト本体
+### Script body to register with Azure Automation
 ````
 $StorageConnection = Get-AutomationVariable -Name 'storageKey'
 $strctx = New-AzureStorageContext -ConnectionString $StorageConnection
 $appSecret = Get-AutomationVariable -Name 'appSecret'
-$tenantId="xxxxx" #Azure AD のテナント ID
-$appId="xxxxx" #Azure AD で IRM 用に登録したアプリケーションの ID
-$jobId="xxxx" #IRM の HR コネクタ設定で指定された ID
+$tenantId="xxxxx" #Azure AD tenant ID
+$appId="xxxxx" #ID of the application registered for IRM in Azure AD
+$jobId="xxxx" #ID specified in the HR Connector settings for IRM
 
 $path=Get-Location
 Get-AzureStorageFileContent -ShareName "hrdata" -Path "HR_Resignation.txt" -Context $strctx
@@ -32,31 +32,31 @@ Get-AzureStorageFileContent -ShareName "hrdata" -Path "HRConnector.ps1" -Context
 -appSecret $appSecret -jobId $jobId -filePath "$path\HR_Resignation.txt"
 ````
 
-## HR Connector で取り込む CSV ファイルを元に、メールが有効なセキュリティ グループを作成し、グループメンバーシップをメンテナンスする
-2 つ目のサンプルは、"IRMTargetGroup" という名前のメールが有効なセキュリティ グループを作成し、HR からの CSV ファイルに記載されているユーザーを、"IRMTargetGroup" に登録するものです。HR からの CSV ファイル側で、ユーザーの増減があれば、それに合わせて、"IRMTargetGroup" のメンバーも変更します。この　"IRMTargetGroup" のグループを作成しておくことで、IRM のポリシーの範囲を限定することができます。同様の手法で、IRM の用途に限らず、Azure Storage 上の CSV ファイルを元に、特定のグループをメンテナンスすることもできます。
+## Create a mail-enabled security group and maintain group membership based on a CSV file imported by the HR Connector.
+The second sample creates a mail-enabled security group named "IRMTargetGroup" and adds users listed in a CSV file from HR to "IRMTargetGroup." If the number of users increases or decreases in the CSV file from HR, the members of "IRMTargetGroup" will also change accordingly. By creating this "IRMTargetGroup" group, you can limit the scope of IRM policies. Using the same method, you can also maintain specific groups based on CSV files on Azure Storage, not just for IRM purposes.
 
-### 事前準備
-#### 先の手順で実施していない場合
-1. Azure 上に Storage アカウントを作成し、そこにファイル シェア "hrdata" を作成する
-2. 上記ファイル シェアに、"HR_Resignation.txt"というファイル名で、 IRM HR Connector で取り込む CSV ファイルを、BOM 付き UTF-8 の形式でアップロードしておく
-3. Azure Automation アカウントを作成する
-4. Azure Automation アカウントで、1.のファイル シェアへの接続キーを暗号化された文字列の変数として "storageKey" という名称で保存する
-#### 新規手順
-5. Azure Automation アカウントで、"ExchangeOnlineManagement" のモジュールをギャラリーから取り込む
-  (ランタイム バージョンは、5.1)
-6. Azure Automation アカウントで、Exchange Online 接続用に "Office 365" という名称で、Exchange 管理者の権限を持つアカウントの ID/パスワードを登録する
-7. Azure Automation アカウントで、Runbook を作成し、ランタイム バージョン 5.1 の PowerShell 形式とする
-8. 上記 Runbook に以下のスクリプトを張りつけて発行する
-9. Runbook の動作を検証し、"IRMTargetGroup" というメールが有効なセキュリティ グループが作成され、CSV に記載されたメンバーが登録されていることを確認する
-10. HR から取り込む CSV ファイルを Azure Storage へのアップロード頻度に応じて、Runbook のスケジュール実行を設定する
+### Prerequisites
+#### If you have not yet completed the previous steps
+1. Create a storage account in Azure and create a file share named "hrdata" there.
+2. Upload the CSV file to be imported by the IRM HR Connector to the file share with the file name "HR_Resignation.txt" in UTF-8 with BOM format.
+3. Create an Azure Automation account.
+4. In the Azure Automation account, save the connection key to the file share from step 1 as an encrypted string variable named "storageKey."
+#### New Steps
+5. In the Azure Automation account, import the "ExchangeOnlineManagement" module from the Gallery.
+(Runtime version is 5.1)
+6. In the Azure Automation account, register the ID and password of an account with Exchange administrator privileges named "Office 365" for Exchange Online connectivity.
+7. In the Azure Automation account, create a runbook in PowerShell format with runtime version 5.1.
+8. Paste the following script into the runbook and publish it.
+9. Verify that the runbook works and that an email-enabled security group called "IRMTargetGroup" is created with the members listed in the CSV file.
+10. Schedule the runbook to run according to the frequency with which the CSV file from HR is uploaded to Azure Storage.
 
-### Azure Automation に登録するスクリプト本体
+### Script body for registering with Azure Automation
 ````
 # Get the connection string for the storage share
 $StorageConnection = Get-AutomationVariable -Name 'storageKey'
 $strctx = New-AzureStorageContext -ConnectionString $StorageConnection
 
-# Get the credential for Azure AD connection
+# Get the credential for the Azure AD connection
 $Credential = Get-AutomationPSCredential -Name "Office 365"
 
 # Get the HR CSV file
@@ -66,8 +66,8 @@ $csv=Import-Csv -Path "$path\HR_Resignation.txt"
 
 # Create a list of users in HR CSV
 $TargetUsers=@()
-foreach($line in $csv){
-    $TargetUsers+=$line.EmailAddress.ToLower()
+foreach($line in $csv){ 
+$TargetUsers+=$line.EmailAddress.ToLower()
 }
 
 # Show current users in CSV
@@ -81,42 +81,41 @@ Connect-ExchangeOnline -Credential $Credential
 $IRMTargetGroup="IRMTargetGroup"
 $g=Get-DistributionGroup -Identity $IRMTargetGroup -ErrorAction Ignore
 $members=@()
-if($g -eq $null){
-    $g=New-DistributionGroup -Name $IRMTargetGroup -Type "Security"
-    "IRMTargetGroup is newly created."
+if($g -eq $null){ 
+$g=New-DistributionGroup -Name $IRMTargetGroup -Type "Security" 
+"IRMTargetGroup is newly created."
 }
-else{
-    "IRMTargetGroup is found."
-    
-    #Get current users in "IRMTargetGroup"
-    $mem=Get-DistributionGroupMember -Identity $IRMTargetGroup -ResultSize 2000
-    
-    #Create a list of users in "IRMTargetGroup"
-    foreach($m in $mem){
-        if($m.PrimarySmtpAddress)
-            {$members+=$m.PrimarySmtpAddress.ToLower()}
-        else{$members+=($m.Identity+"@"+$m.OrganizationalUnitRoot).ToLower()}
-    }
-    
-    #Show current users in IRMTargetGroup
-    "Current users in IRMTargetGroup ("+$members.count+" users)"
-    $members
+else{ 
+"IRMTargetGroup is found." 
+
+#Get current users in "IRMTargetGroup" 
+$mem=Get-DistributionGroupMember -Identity $IRMTargetGroup -ResultSize 2000 
+
+#Create a list of users in "IRMTargetGroup" 
+foreach($m in $mem){ 
+if($m.PrimarySmtpAddress) 
+{$members+=$m.PrimarySmtpAddress.ToLower()} 
+else{$members+=($m.Identity+"@"+$m.OrganizationalUnitRoot).ToLower()} 
+} 
+
+#Show current users in IRMTargetGroup 
+"Current users in IRMTargetGroup ("+$members.count+" users)" 
+$members
 }
 
 # Remover users from "IRMTargetGroup" if they are not in HR CSV
-foreach($m in $members){
-    if(!$TargetUsers.Contains($m)){
-        Remove-DistributionGroupMember -Identity $IRMTargetGroup -Member $m -Confirm:$false
-        "$m is removed."
-    }
+foreach($m in $members){ 
+if(!$TargetUsers.Contains($m)){ Remove-DistributionGroupMember -Identity $IRMTargetGroup -Member $m -Confirm:$false 
+"$m is removed." 
+}
 }
 
 # Add users to "IRMTargetGroup" if they are not in the group but are in HR CSV
-foreach($u in $TargetUsers){
-    if(!$members.Contains($u)){
-        Add-DistributionGroupMember -Identity $IRMTargetGroup -Member $u
-        "$u is added."
-        }
+foreach($u in $TargetUsers){ 
+if(!$members.Contains($u)){ 
+Add-DistributionGroupMember -Identity $IRMTargetGroup -Member $u 
+"$u is added." 
+}
 }
 Disconnect-ExchangeOnline -Confirm:$false
 "Done"

@@ -1,154 +1,154 @@
-# Office 365 監査ログの出力
-Office 365 監査ログに関する技術情報についてです。Office 365 の監査ログに記録されるログの種類およびこれらの保持については、[こちら](https://github.com/YoshihiroIchinose/Office365Audit/blob/main/RecordTypes.md) のページも参照ください。
+# Outputting Office 365 Audit Logs
+This is technical information about Office 365 audit logs. For information on the types of logs recorded in Office 365 audit logs and their retention, please also see the page [here](https://github.com/YoshihiroIchinose/Office365Audit/blob/main/RecordTypes.md).
 
-## Seach-UnifiedAuditLog でのデータ取得最大件数について  
-Seach-UnifiedAuditLog で最大何件までログを取れるかという話について、[Docs](https://docs.microsoft.com/ja-jp/powershell/module/exchange/search-unifiedauditlog?view=exchange-ps)を見ると、-SessionCommand RetrunLargeSet など指定すれば、一見すると一回のクエリで最大 50,000 件でのデータが取れるようにみえるかと思います。ただ、試してみると分かりますが、こちらのオプションを付けた所で、-ResultSize に 5,000 を超えた値を指定すれば、エラーになりますし、-ResultSize を指定しないと、100 件しかデータが取れません。**結局一回のコマンドで取れるデータについては、-ResultSize の最大である 5,000 であることは変わりないです**。ただ、セッション ID の指定と、-SessionCommand RetrunLargeSet のオプションがあれば、内部的に 50,000 件までの結果を確保しておけるので、繰り返し同じセッション ID でコマンドレットを実行することで、同じ検索条件で、**5,000 件ずづ順次、10 回に分けて、最大 50,000 件のデータセットが取得できる**という動作となります。裏を返せば、50,000 件を超えるような広い範囲の検索設定では、同じコマンドレットを複数回実行して、何回かに分けて5,000件ずつログを取得しても、全部のログが取れないという点に注意する必要があります。
+## Maximum Data Retrieval with Search-UnifiedAuditLog
+Regarding the maximum number of logs that can be retrieved with Search-UnifiedAuditLog, [Docs](https://docs.microsoft.com/ja-jp/powershell/module/exchange/search-unifiedauditlog?view=exchange-ps) suggests that specifying options such as -SessionCommandRetrunLargeSet allows you to retrieve up to 50,000 items of data in a single query. However, if you try it, you'll find that even with this option, specifying a value greater than 5,000 for -ResultSize will result in an error; if you don't specify -ResultSize, you'll only get 100 results. **In the end, the maximum amount of data that can be retrieved with a single command is still 5,000, the maximum for -ResultSize**. However, if you specify a session ID and the -SessionCommandRetrunLargeSet option, up to 50,000 results can be internally reserved. Therefore, by repeatedly executing the cmdlet with the same session ID using the same search criteria, you can retrieve a maximum dataset of 50,000 results, divided into 10 runs of 5,000 results each.** Conversely, with search settings spanning a wide range (more than 50,000 results), it's important to note that even if you run the same cmdlet multiple times and retrieve 5,000 results each time, you won't be able to retrieve all the logs.
 
-## AuditData の扱いについて
-Seach-UnifiedAuditLog のコマンドレットでは、Microsoft 365 に関する様々な種類のログが取得可能です。こちらの [Docs](https://docs.microsoft.com/ja-jp/office/office-365-management-api/office-365-management-activity-api-schema#auditlogrecordtype) に取りうるログの種類がまとめられています。ただログの種類によって当然記録されているデータは異なるため、固有の意味のあるデータは、AuditData という列にまとめて JSON 形式で格納されています。そのためログの詳細を CSV 形式などで出力しようとすると、ログの種類(RecordType ごとの Operation) に応じて、JSON の中から取り出す値を個別に指定しなければいけないという煩雑さがあります。今回ここで提示する PowerShell のサンプルでは、一端取り出したログの中から、Operation の種類ごとに 1 つログを取り出してその中に含まれている JSON の属性名を事前に分析しておくことで、個別に属性名を指定することなく、網羅的に CSV 形式にデータを出力しているものとなっています。また今後ニーズが高まるであろう、端末側の操作を抜き出す Endpoint DLP のログを例にとっています(要 M365 E5, M365 E5 Compliance, or Infomatino Protection & Governance ライセンスおよび端末のオンボード)。
+## Handling AuditData
+The Search-UnifiedAuditLog cmdlet can retrieve various types of Microsoft 365 logs. The available log types are summarized in the [Docs](https://docs.microsoft.com/ja-jp/office/office-365-management-api/office-365-management-activity-api-schema#auditlogrecordtype). However, because the data recorded varies depending on the log type, meaningful data is stored in JSON format in a column called AuditData. Therefore, outputting log details in CSV format or other formats can be cumbersome, as you must individually specify the values ​​to extract from the JSON according to the log type (operation for each record type). The PowerShell sample presented here first extracts one log per operation type from the retrieved logs and then analyzes the JSON attribute names contained within them in advance. This allows comprehensive output of data in CSV format without specifying individual attribute names. This example also uses Endpoint DLP logs, which extract device-side operations, as an example. This is likely to be in high demand in the future (requires an M365 E5, M365 E5 Compliance, or Infomatino Protection & Governance license and device onboarding).
 
-## AuditData 内の JSON の書き出しについて 2022/01/17 更新
-ConvertFrom-Json を用いて JSON 形式のテキスト データをパースしてオブジェクトとして取り出すことが可能です。ただ取り出した属性の内に、配列形式を含む値がある場合については、単純にテキスト出力しても その部分は System.Object[] という表記となってしまい、データをすべて書き出すことができません。そのため、JSON の値を再度、テキストとして書き出す際には、ConvertTo-Json -Compress -Depth 10 $attribute という処理をして、多段の階層で、再度改行を持たない JSON 形式に変換しテキスト出力しています。これにより、DLPEndpoint の機密情報の一致など細部の情報も書き出せるようになっています。
+## Exporting JSON in AuditData (Updated January 17, 2022)
+You can use ConvertFrom-Json to parse JSON-formatted text data and extract it as an object. However, if the extracted attribute contains a value that includes an array, simply outputting it as text will result in that portion being expressed as System.Object[], and not all of the data will be exported. Therefore, when exporting JSON values ​​as text again, we use ConvertTo-Json -Compress -Depth 10 $attribute to convert the JSON values ​​to JSON format without line breaks at multiple levels and output the text. This allows you to export detailed information, such as confidential information matches in DLP Endpoint.
 
-# PowerShell スクリプト
-## PowerShell を管理権限で立ち上げて事前に一度以下を実行
+# PowerShell script
+## Launch PowerShell with administrative privileges and run the following once beforehand.
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 Install-Module -Name ExchangeOnlineManagement
 ```
-## Endpooint DLP のログをまとめて取得
+## Collect Endpoint DLP logs
 ```
-#接続に利用するID / パスワード
+# Connection ID/Password
 $Id="xxx@xxx.onmicrosoft.com"
 $Password = "xxxxx"
-#変数
+# Variable
 $Startdate="2021/06/01"
 $Enddate="2021/12/31"
 $RecordType="DLPEndpoint"
 $OutputFolder=[System.Environment]::GetFolderPath("Desktop")+"\"
 
-#Credentialの生成
+# Credential generation
 $SecPass=ConvertTo-SecureString -String $Password -AsPlainText -Force
 $Credential= New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Id, $SecPass
 
 Import-Module ExchangeOnlineManagement
 Connect-ExchangeOnline -credential $Credential
 
-#日付と時刻で固有のセッション ID 文字列を生成
+#Generate a unique session ID string using the date and time
 $sessionId=$RecordType+(Get-Date -Format "yyyyMMdd-HHmm")
 
-#最大 5,000 x 10 回のループでログを取得
+#Retrieve logs in a loop of up to 5,000 x 10 times
 $output=@();
 for($i = 0; $i -lt 10; $i++){
-    $result=Search-UnifiedAuditLog -RecordType $RecordType -Startdate $Startdate -Enddate $Enddate -SessionId $sessionId -SessionCommand ReturnLargeSet -ResultSize 5000
-    $output+=$result
-    "クエリ"+($i+1)+"回目: "+$result.Count.ToString() + " 件取得"
-    if($result.count -ne 5000){break}
+$result=Search-UnifiedAuditLog -RecordType $RecordType -Startdate $Startdate -Enddate $Enddate -SessionId $sessionId -SessionCommand ReturnLargeSet -ResultSize 5000
+$output+=$result
+"Query"+($i+1)+"th iteration: "+$result.Count.ToString() + "items retrieved"
+if($result.count -ne 5000){break}
 }
-"合計: "+$Output.Count.ToString() + " 件取得"
-    
-#Operation の種類ごとに最初の 1 つ目のアイテムから Json に含まれているフィールドを取得
+"Total: "+$Output.Count.ToString() + " Get items"
+
+#Get fields contained in JSON from the first item for each operation type
 $OperationTypes=$output|Group-Object Operations
 $FieldName=@()
 foreach($Operation in $OperationTypes){
-    $JsonRaw=$Operation.Group[0].AuditData|ConvertFrom-Json
-    $FieldsInJson=$JsonRaw|get-member -type NoteProperty
-    foreach($f in $FieldsInJson){
-      if($FieldName.Contains($f.Name) -eq $false) { $FieldName+=$f.Name}
-    }
+$JsonRaw=$Operation.Group[0].AuditData|ConvertFrom-Json
+$FieldsInJson=$JsonRaw|get-member -type NoteProperty
+foreach($f in $FieldsInJson){
+if($FieldName.Contains($f.Name) -eq $false) { $FieldName+=$f.Name}
+}
 }
 
-#Select-Object で利用するために、Json をパースする ScriptBlock を生成
-$Fields="ResultIndex", "CreationDate","UserIds","Operations","RecordType"
+#Generate a ScriptBlock to parse JSON for use with Select-Object
+$Fields="ResultIndex", "CreationDate", "UserIds", "Operations", "RecordType"
 foreach($f in $FieldName){
-    $sb1=[scriptblock]::Create('$JsonRaw.'+$f)
-    $sb2=[scriptblock]::Create('$att=$JsonRaw.'+$f+';if($att.GetType().Name -eq "Object[]" -or $att.GetType().Name -eq "PSCustomObject"){ConvertTo-Json -Compress -Depth 10 $att} else {$att}')
-    if($f -ne "RecordType") {$Fields+=@{Name=$f;Expression=$sb2}}
-    else {$Fields+=@{Name="RecordType2";Expression=$sb1}}
+$sb1=[scriptblock]::Create('$JsonRaw.'+$f)
+$sb2=[scriptblock]::Create('$att=$JsonRaw.'+$f+';if($att.GetType().Name -eq "Object[]" -or $att.GetType().Name -eq "PSCustomObject"){ConvertTo-Json -Compress -Depth 10 $att} else {$att}')
+if($f -ne "RecordType") {$Fields+=@{Name=$f;Expression=$sb2}}
+else {$Fields+=@{Name="RecordType2";Expression=$sb1}}
 }
 
-#Jsonをパースしながら、CSV 形式に加工
+#Parse JSON and convert it to CSV format
 $csv=@();
 foreach($row in $output){
-    $JsonRaw=$row.AuditData|ConvertFrom-Json
-    $data=$row|Select-Object -Property $Fields
-    $csv+=$data
- }
+$JsonRaw=$row.AuditData|ConvertFrom-Json
+$data=$row|Select-Object -Property $Fields
+$csv+=$data
+}
 
-#出力
+#Output
 $csv|Export-Csv -Path ($OutputFolder+$sessionId+".csv") -NoTypeInformation -Encoding UTF8
 
 ```
-## (おまけ) Excel を通じて CSV ファイルをテーブル フォーマットありの Excel ファイルに変換
+## (Bonus) Convert a CSV file to an Excel file with table formatting via Excel
 ```
 $excel = new-Object -com excel.application
 $excel.visible = $false
 $book = $excel.Workbooks.open($OutputFolder+$sessionId+".csv")
-$book.ActiveSheet.ListObjects.Add(1,$book.ActiveSheet.Range("A1").CurrentRegion ,$null,1).Name = "テーブル1"
+$book.ActiveSheet.ListObjects.Add(1,$book.ActiveSheet.Range("A1").CurrentRegion ,$null,1).Name = "Table1"
 $book.SaveAs($OutputFolder+$sessionId+".xlsx",51)
 $book.close()
 $excel.quit()
 
 ```
-なお 15,145 件のデータでは、CSV 形式で 8.31 MB のサイズだったファイルが、XLSX 形式に変換することで約 3 分の 1 の 2.68 MB に圧縮できました。
+Note For 15,145 data items, a file that was 8.31 MB in CSV format was compressed to 2.68 MB, about one-third the size, by converting it to XLSX format.
 
-## (参考) DLPEndpooint の RecordType で確認されている Operation の種類
-(他にも BlueeTooth の操作もあるはず)
-- FileDeleted  
-- RemovableMediaUnmount  
-- FileModified  
-- RemovableMediaMount  
-- FileUploadedToCloud  
-- FileCopiedToRemoteDesktopSession  
-- FileArchived  
-- FileCreated  
-- FileRead  
-- FileCopiedToNetworkShare  
-- FileCreatedOnNetworkShare  
-- FileCreatedOnRemovableMedia  
-- FileRenamed  
-- FileCopiedToRemovableMedia  
-- FileDownloadedFromBrowser  
-- FilePrinted  
-- FileMoved  
-- FileCopiedToClipboard  
+## (Reference) Operation types confirmed in DLPEndpooint RecordType
+(There may also be other Bluetooth operations)
+- FileDeleted
+- RemovableMediaUnlockedmount
+- FileModified
+- RemovableMediaMount
+- FileUploadedToCloud
+- FileCopiedToRemoteDesktopSession
+- FileArchived
+- FileCreated
+- FileRead
+- FileCopiedToNetworkShare
+- FileCreatedOnNetworkShare
+- FileCreatedOnRemovableMedia
+- FileRenamed
+- FileCopiedToRemovableMedia
+- FileDownloadedFromBrowser
+- FilePrinted
+- FileMoved
+- FileCopiedToClipboard
 
-## (参考) 上記 Operation のログの AuditData に含まれる JSON 内の属性
-(Operation の種類によって含まれる情報は異なる)
-- Application  
-- ClientIP  
-- CreationTime  
-- DeviceName  
-- FileExtension  
-- FileSize  
-- FileType  
-- Hidden  
-- Id  
-- MDATPDeviceId  
-- ObjectId  
-- Operation  
-- OrganizationId  
-- Platform  
-- RecordType  
-- Scope  
-- SourceLocationType  
-- UserId  
-- UserKey  
-- UserType  
-- Version  
-- Workload  
-- RemovableMediaDeviceAttributes  
-- DestinationLocationType  
-- EnforcementMode  
-- OriginatingDomain  
-- RMSEncrypted  
-- SensitiveInfoTypeData  
-- Sha1  
-- Sha256  
-- TargetFilePath  
-- TargetDomain  
-- PolicyMatchInfo  
-- TargetPrinterName  
-- ParentArchiveHash  
-- SensitivityLabelEventData  
-- PreviousFileName  
+## (Reference) Attributes in the JSON included in the AuditData of the above Operation log
+(Information included varies depending on the type of operation)
+- Application
+- ClientIP
+- CreationTime
+- DeviceName
+- FileExtension
+- FileSize
+- FileType
+- Hidden
+- Id
+- MDATPDeviceId
+- ObjectId
+- Operation
+- OrganizationId
+-Platform
+-RecordType
+-Scope
+-SourceLocationType
+-UserId
+-UserKey
+-UserType
+- Version
+-Workload
+-RemovableMediaDeviceAttributes
+-DestinationLocationType
+- EnforcementMode
+-OriginatingDomain
+-RMSEncrypted
+- SensitiveInfoTypeData
+-Sha1
+-Sha256
+-TargetFilePath
+-TargetDomain
+-PolicyMatchInfo
+-TargetPrinterName
+-ParentArchiveHash
+- SensitivityLabelEventData
+- PreviousFileName

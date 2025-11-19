@@ -1,254 +1,253 @@
-# Endpoint DLP の操作をメール通知する
-Endpoint DLP で監視できる、クラウドへのファイルのアップロードおよびリムーバブル メディアへの書き込み操作を、Azure Automate 上に構成した PowerShell スクリプトを通じて、Microsoft 365 監査ログより取得し、
-SharePoint 重複を排除してリストに書き込むと共に SharePoint リストへの新規アイテム追加をトリガーとした Power Automate を利用して、カスタムのメール通知を行うソリューションの実装サンプルになります。
-なお、このサンプルでは、FileCopiedToRemovableMedia および FileUploadedToCloud のログを対象とした通知を行います。
-構造や作り方は外部共有操作をメール通知する[こちら](https://github.com/YoshihiroIchinose/E5Comp/blob/main/ExternalSharingMonitoring.md)のサンプルと同じなので、
-併せて参考にしてください。
+# Send email notifications for Endpoint DLP operations
+This is a sample solution implementation that uses a PowerShell script configured in Azure Automate to retrieve file uploads to the cloud and write operations to removable media, which can be monitored by Endpoint DLP, from the Microsoft 365 audit log.
+The script then deduplicates the data and writes it to a SharePoint list. It also uses Power Automate, triggered by the addition of a new item to the SharePoint list, to send custom email notifications.
+In this sample, notifications are sent for the FileCopiedToRemovableMedia and FileUploadedToCloud logs.
+The structure and setup are the same as the sample [here](https://github.com/YoshihiroIchinose/E5Comp/blob/main/ExternalSharingMonitoring.md) that sends email notifications for external sharing operations, so please refer to that as well.
 
-おおよその動作の仕組みとしては以下の通りです。
-1. Endpoint DLP の操作を記録する SharePoint リストを用意しておく
-2. 上記 SharePoint リストに Power Automate で新しいアイテムが追加された際、操作を行ったユーザーにメール通知を行う処理を設定しておく
-3. Azure Automate を用いて、一定期間ごとに監査ログから特定のラベル操作を抜き出し、重複を排除しながらログを 1 のリストに書き込む
+The general operation mechanism is as follows:
+1. Prepare a SharePoint list to record Endpoint DLP operations.
+2. Set up a process to send an email notification to the user who performed the operation when a new item is added to the SharePoint list using Power Automate.
+3. Use Azure Automate to periodically extract specific label operations from the audit log and write the logs to the list in 1 while eliminating duplicates.
 
-考慮事項
-1. Azure Automate では高額ではないが処理量に応じた従量課金が発生
-2. Power Automate のメール通知では、設定を行ったユーザーが送信者となったメール通知となり、Office 365 組み込みのライセンスでは、1 日 6,000 件といった処理量の上限あり
-3. 重複を排除したラベル操作の追記をリストに行うため、Auzre Automate で抜き出すログの範囲は重複してもよい。もし数時間単位でタイムリーに通知を行いたい場合、Azure Automate で抜き出すログの範囲も直近数時間といった範囲に狭め、スケジュール実行の頻度を数時間サイクルとすること。
-4. 新規作成されたリスト アイテムに紐づく Power Automate のフローを用いるため、1 操作 = 1 メール通知となり、複数操作をサマリしたメール通知を行うことはできない
-5. テスト用に再度メール通知を行いたい場合には、SharePoint のリストから、該当の操作のログを消すこと。これにより Azure Automate で再度ログが登録しなおされた際、メール通知が Power Automate により行われる。
+Considerations
+1. Azure Automate is not expensive, but there is a pay-per-use fee based on the amount of processing.
+2. Power Automate email notifications are sent by the user who configured them, and the Office 365 built-in license has a processing limit of 6,000 notifications per day.
+3. Since duplicate-free label operations are added to the list, the range of logs extracted by Azure Automate can overlap. If you want timely notifications within a few hours, narrow the range of logs extracted by Azure Automate to the most recent few hours and set the schedule execution frequency to a few hours.
+4. Because a Power Automate flow linked to a newly created list item is used, one operation = one email notification; email notifications summarizing multiple operations are not possible.
+5. If you want to re-send email notifications for testing purposes, delete the log for the corresponding operation from the SharePoint list. This will allow Power Automate to send email notifications when the log is re-registered in Azure Automate.
 
-# 事前準備
-## 1. EndpintDLP 操作を書き出す SharePoint サイトの準備
-1. 専用の SharePoint チーム サイトを CustomeNotifcation の名称で作成する   
-1. 作成したサイトのサイト コンテンツから EndpointDLP の名称で空白のリストを作成する   
+# Preparation
+## 1. Prepare a SharePoint site to export EndpointDLP operations
+1. Create a dedicated SharePoint team site named CustomNotification.
+1. Create a blank list named EndpointDLP in the site contents of the created site.
 ### EndpointDLP
-タイトル以外の以下の列を追加する。PowerShell で扱いやすくするために、以下の通り英数字で列は作成する。   
-もし列名をミスタイプした場合には、列名を変更して修正するだけでは列の内部名は修正されないので、列を削除した上で、作り直す。
-| 列の種類 | 列の名称 |
+Add the following columns, excluding the title. For ease of use in PowerShell, create the columns using alphanumeric characters as shown below.
+If you mistype a column name, simply changing the column name will not correct the internal column name; delete the column and recreate it.
+| Column Type | Column Name |
 |---|---|
-| 1 行テキスト | User, Itme, Operation, EnforcementMode, TargetFilePath, OriginatingDomain, TargetDomain, PolicyName, RuleName, ClientIP, DeviceName, Application, Sha1, Sha256, FileType, EvidenceFile,RemovableMediaDeviceAttributes|
-| 日付と時刻 (時刻を含める) *| Time |
-| はい/いいえ | RMSEncrypted, JitTriggered,Notified|
-| 数値 | FileSize |
-| 複数行テキスト | SensitiveInfoTypeData|
+| Single Line of Text | User, Item, Operation, EnforcementMode, TargetFilePath, OriginatingDomain, TargetDomain, PolicyName, RuleName, ClientIP, DeviceName, Application, Sha1, Sha256, FileType, EvidenceFile, RemovableMediaDeviceAttributes|
+| Date and Time (Include Time) *| Time |
+| Yes/No | RMSEncrypted, JitTriggered, Notified|
+| Number | FileSize |
+| Multi-Line Text | SensitiveInfoTypeData|
 
-*日付と時刻の種類を選び、時刻を含めるをはいとする。また LabelActivities のリストの設定から、列のインデックス付きの列で、Time にインデックスを設定しておく。   
-こちらのリストにログが書き込まれると以下のような見た目となる。   
+*Select the Date and Time type and set Include Time to Yes. Also, in the LabelActivities list settings, set the index to Time under Indexed Columns.
+When logs are written to this list, it will look like this:
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/EDLPNotif01.png"/>
 
-## 2. Azure 環境の設定
-1. Azure Automation アカウントを作成   
-1. Azure Automation アカウントにて、"モジュール" -> "ギャラリーを参照"から、以下の 3 つのモジュールを追加する。   
-(ランタイム バージョンは 5.1)   
-  SharePointOnline.CSOM    
-  PnP.PowerShell  
-  ExchangeOnlineManagement   
-1. Azure Automation アカウントの"資格情報"->"資格情報の追加"で、監査ログの抽出権限があり、   
-  指定の SharePoint Online サイトに投稿権限があるアカウントの ID とパスワードを "Office 365" という名称で登録しておく。
-1. Azure Automation アカウントの"Runbook"->"Runbook の作成"で PowerShell、ランタイム バージョン 5.1 の Runbook を作成する   
-1. 作成した Runbook に以下のスクリプトをコピー & ペーストする   
-1. 適宜スクリプト内の SharePoint Site の URL および、リスト名を変更・保存し、公開する   
-1. 作成した Runbook を"開始"し、動作を確認する   
-1. 必要に応じて Daily 等のスケジュール実行を設定する   
-Azure Automation で本スクリプトを実行すると、以下のように処理されたログの件数が出力される。   
+## 2. Setting Up Your Azure Environment
+1. Create an Azure Automation Account
+1. In your Azure Automation account, add the following three modules from "Modules" -> "Browse Gallery."
+(Runtime version is 5.1)
+SharePointOnline.CSOM
+PnP.PowerShell
+ExchangeOnlineManagement
+1. In your Azure Automation account, go to "Credentials" -> "Add Credentials" and register the ID and password of an account with permissions to extract audit logs and post to the specified SharePoint Online site under the name "Office 365."
+1. In your Azure Automation account, go to "Runbooks" -> "Create a Runbook" and create a PowerShell runbook with runtime version 5.1.
+1. Copy and paste the following script into the runbook you created.
+1. Modify the SharePoint site URL and list name in the script as appropriate, save it, and publish it.
+1. "Start" the runbook you created and check its operation.
+1. Set a schedule such as Daily if necessary.
+When you run this script in Azure Automation, the number of processed logs will be output, as shown below.
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/EDLPNotif02.png"/>
 
-#### Aure Automation サンプル スクリプト
+#### Aure Automation Sample Script
 
 ```
 $Credential = Get-AutomationPSCredential -Name "Office 365"
 $SiteUrl="https://xxxx.sharepoint.com/sites/CustomNotification"
 $LabelActivitiesList="EndpointDLP"
 $HoursInterval=48
-#ログの取得範囲はテスト環境として過去 48 時間の範囲
+#Log acquisition scope is the past 48 hours as a test environment. Time Range
 $date=Get-Date
 $Start=$date.addHours($HoursInterval*-1).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $End=$date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-#オブジェクトに値を設定する Function
+#Setting Values ​​to an Object Function
 Function AddMember{
-    Param($a,$b,$c)
-    add-member -InputObject $a -NotePropertyName $b  -NotePropertyValue $c
+Param($a,$b,$c)
+add-member -InputObject $a -NotePropertyName $b -NotePropertyValue $c
 }
 
-#機密情報の情報を複数行テキストに変換する Function
+#Converting Sensitive Information to Multi-Line Text Function
 Function PurseSIT{
-    Param($a)
-    $b=ConvertFrom-Json $a
-    $output=""
-    foreach($i in $b){
-        $detail=@()
-        foreach($d in $i.SensitiveInformationDetailedClassificationAttributes){
-            $detail+=$d.Confidence.ToString() +"x"+$d.Count
-        }
-        $line=[string]::Join(",", $detail)
-        $output+=$i.SensitiveInfoTypeName+":"+$i.Confidence+"x"+$i.Count+" ("+$line+")"+"`n"
-    }
-    return $output
+Param($a)
+$b=ConvertFrom-Json $a
+$output=""
+foreach($i in $b){
+$detail=@()
+foreach($d in $i.SensitiveInformationDetailedClassificationAttributes){
+$detail+=$d.Confidence.ToString() +"x"+$d.Count
+}
+$line=[string]::Join(",", $detail)
+$output+=$i.SensitiveInfoTypeName+":"+$i.Confidence+"x"+$i.Count+" ("+$line+")"+"`n"
+}
+return $output
 }
 
-#監査ログを 5,000 件 x 最大 10 回で 50,000 件取得し、$global:output に格納する Function
+#Retrieve 5,000 audit logs x up to 10 times (50,000 total) and store them in $global:output. Function
 Function ExtractAuditLog{
-    Param($type,$op)
-    if($type -eq $null){return}
-    $itemcount=0
-    for($i = 0; $i -lt 10; $i++){
-        $result=Search-UnifiedAuditLog -RecordType $type -StartDate $global:Start -EndDate $global:End -SessionId $type -Operations $op	-SessionCommand ReturnLargeSet -ResultSize 5000
-	"Query for $type, Round("+($i+1)+"): "+$result.Count.ToString() + " items"
-	$global:output+=$result
-	$itemcount+=$result.Count
-	if($result.count -ne 5000){break}
-    }
-    "$type Total: "+$itemcount.ToString() + " items"
+Param($type,$op)
+if($type -eq $null){return}
+$itemcount=0
+for($i = 0; $i -lt 10; $i++){
+$result=Search-UnifiedAuditLog -RecordType $type -StartDate $global:Start -EndDate $global:End -SessionId $type -Operations $op -SessionCommand ReturnLargeSet -ResultSize 5000
+"Query for $type, Round("+($i+1)+"): "+$result.Count.ToString() + " items"
+$global:output += $result
+$itemcount += $result.Count
+if($result.count -ne 5000){break}
+}
+"$type Total: "+$itemcount.ToString() + " items"
 }
 enum EnforcementMode {
-    None = 0
-    Audit = 1
-    Warn = 2
-    WarnAndBypass = 3 
-    Block = 4
+None = 0
+Audit = 1
+Warn = 2
+WarnAndBypass = 3
+Block = 4
 }
-#3 $global:output から DLP 操作の内容を抽出し、$global:csv に書き出す
+#3 Extract DLP operation details from $global:output and write them to $global:csv
 Function FormatLabelActitivyLog {
-    foreach($i in $global:output){
-       $AuditData=$i.AuditData|ConvertFrom-Json
-        $line = New-Object -TypeName PSObject
-        
-        #列名が違うか加工が必要な属性の処理
-        AddMember $line "LogId" $Auditdata.Id
-        AddMember $line "User" $i.UserIds
-        AddMember $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
-        AddMember $line "Operation" $i.Operations
-        AddMember $line "Item" $AuditData.ObjectId
-        AddMember $line "EnforcementMode" ([EnforcementMode].GetEnumName($Auditdata.EnforcementMode))
-        AddMember $line "SensitiveInfoTypeData" (PurseSIT (ConvertTo-Json -Compress -Depth 10 $AuditData.SensitiveInfoTypeData))
-        AddMember $line "EvidenceFile" $AuditData.EvidenceFile.FullUrl
-        AddMember $line "RemovableMediaDeviceAttributes" $AuditData.RemovableMediaDeviceAttributes
-        AddMember $line "PolicyName" $AuditData.PolicyMatchInfo.PolicyName
-        AddMember $line "RuleName" $AuditData.PolicyMatchInfo.RuleName
+foreach($i in $global:output){
+$AuditData=$i.AuditData|ConvertFrom-Json
+$line = New-Object -TypeName PSObject
 
-        #ログ内の列名と、書き込む先の列名が一致し、加工が必要ない列
-        $att=@("ClientIP","DeviceName","Application","Sha1","Sha256","FileSize","RMSEncrypted","TargetFilePath",
-        "OriginatingDomain","TargetDomain","JitTriggered","FileType")
+#Handling attributes with different column names or that require processing
+AddMember $line "LogId" $Auditdata.Id
+AddMember $line "User" $i.UserIds
+AddMemberamber $line "Time" $i.CreationDate.ToString("yyyy-MM-ddTHH:mm:ssZ") 
+AddMember $line "Operation" $i.Operations 
+AddMember $line "Item" $AuditData.ObjectId 
+AddMember $line "EnforcementMode" ([EnforcementMode].GetEnumName($Auditdata.EnforcementMode)) 
+AddMember $line "SensitiveInfoTypeData" (PurseSIT (ConvertTo-Json -Compress -Depth 10 $AuditData.SensitiveInfoTypeData)) 
+AddMember $line "EvidenceFile" $AuditData.EvidenceFile.FullUrl 
+AddMember $line "RemovableMediaDeviceAttributes" $AuditData.RemovableMediaDeviceAttributes 
+AddMember $line "PolicyName" $AuditData.PolicyMatchInfo.PolicyName
+AddMember $line "RuleName" $AuditData.PolicyMatchInfo.RuleName
 
-        foreach($a in $att){
-            AddMember $line $a  ($AuditData.$a)
-        }
-        $global:csv+=$line
-    }
+#Column names in the log match the destination column names, and no processing is required.
+$att=@("ClientIP","DeviceName","Application","Sha1","Sha256","FileSize","RMSEncrypted","TargetFilePath",
+"OriginatingDomain","TargetDomain","JitTriggered","FileType")
+
+foreach($a in $att){
+AddMember $line $a ($AuditData.$a)
+}
+$global:csv+=$line
+}
 }
 
-#Exchange Online に接続
+#Connect to Exchange Online
 Connect-ExchangeOnline -credential $credential
 $csv=@()
 
-#DLPEndpoint のログ取得
+#Get DLPEndpoint Log
 $output=@()
-ExtractAuditLog "DLPEndpoint" "FileCopiedToRemovableMedia,FileUploadedToCloud" 
+ExtractAuditLog "DLPEndpoint" "FileCopiedToRemovableMedia,FileUploadedToCloud"
 FormatLabelActitivyLog
 
 Disconnect-ExchangeOnline -Confirm:$false
 
-#現在のリスト アイテムと重複するものは削除してアップロードしない
+#Delete duplicates of current list items and do not upload them
 Connect-PnPOnline -Url $SiteUrl -credentials $Credential
 $CAML="<Query><Where><Geq><FieldRef Name='Time'/><Value Type='DateTime' IncludeTimeValue='TRUE'>$Start</Value></Geq></Where></Query>"
 $csv2 = {$csv}.Invoke()
 foreach($item in (Get-PnPListItem -list $LabelActivitiesList -PageSize 1000 -Query $CAML)){
-    $target=-1
-    for($i=0;$i -lt $csv2.count;$i++){
-        if($csv2[$i].LogId -eq $item.FieldValues["Title"]){
-            $target=$i
-            continue
-        }
-    }
-    if($target -ge 0){
-        $csv2.RemoveAt($target)
-    }
+$target=-1
+for($i=0;$i -lt $csv2.count;$i++){
+if($csv2[$i].LogId -eq $item.FieldValues["Title"]){
+$target=$i
+continue
+}
+}
+if($target -ge 0){
+$csv2.RemoveAt($target)
+}
 }
 "Newly identified total EndpointDLP activities since $Start"+": "+$csv2.count
 
-#リスト側にない検索結果はリストアイテムとして新規に登録する
-#Add-PnPListItem の Batch 処理だと UTC でタイムスタンプが書き込めなかったため CSOM を利用
+#Add search results not in the list as new list items
+#Used CSOM because batch processing of Add-PnPListItem did not allow writing timestamps in UTC.
 $ctx=get-pnpcontext
 $list = $ctx.get_web().get_lists().getByTitle($LabelActivitiesList)
 $count=0
 foreach($item in $csv2){
-    $lic = New-Object Microsoft.SharePoint.Client.ListItemCreationInformation
-    $i = $list.AddItem($lic)
-    $i.set_item("Title", $item.LogId)
+$lic = New-Object Microsoft.SharePoint.Client.ListItemCreationInformation
+$i = $list.AddItem($lic)
+$i.set_item("Title", $item.LogId)
 
-    #列名が一致するものは、そのまま書き込み
-    $att=@("User","Time","Operation","Item","EnforcementMode","PolicyName","RuleName","ClientIP",
-    "DeviceName","Application","FileSize","SensitiveInfoTypeData","RMSEncrypted","TargetFilePath",
-    "RemovableMediaDeviceAttributes","OriginatingDomain","TargetDomain","JitTriggered", 
-    "FileType", "EvidenceFile")
+#Write as is if the column names match.
+$att=@("User", "Time", "Operation", "Item", "EnforcementMode", "PolicyName", "RuleName", "ClientIP",
+"DeviceName", "Application", "FileSize", "SensitiveInfoTypeData", "RMSEncrypted", "TargetFilePath",
+"RemovableMediaDeviceAttributes", "OriginatingDomain", "TargetDomain", "JitTriggered",
+"FileType", "EvidenceFile")
 
-    foreach($a in $att){
-        $i.set_item($a,$item.$a)
-    }
+foreach($a in $att){
+$i.set_item($a,$item.$a)
+}
 
-    #数字が入る列名は SharePoint では、特殊な列名に変換されているため、その内部列の名称に合わせて書き込み
-    $i.set_item("_x0053_ha1", $item.Sha1)
-    $i.set_item("_x0053_ha256", $item.Sha256)
+#Column names containing numbers are converted to special column names in SharePoint, so write them according to the internal column names.
+$i.set_item("_x0053_ha1", $item.Sha1)
+$i.set_item("_x0053_ha256", $item.Sha256)
 
-    $i.update()
-    $count++
-    #書き込みが多い場合には、一旦 100 アイテムで反映
-    if($count % 100 -eq 0){
-        $ctx.ExecuteQuery()}
-    }
+$i.update()
+$count++
+#If there are many writes, first reflect them in 100 items.
+if($count % 100 -eq 0){
+$ctx.ExecuteQuery()}
+}
 $ctx.ExecuteQuery()
-"Endpoint DLP activities were synched with the list."
+"Endpoint DLP activities were synchronized with the list."
 Disconnect-PnPOnline
 ```
-## 3. Power Automate によるメール通知の設定
-1. EndpointDLP のリストのメニューの統合から Power Automate を選択し、フローの作成を選択
-1. "新しい SharePoint リスト アイテムが追加されたらカスタマイズされたメールを送信する"のフローを選択しフローを作成する
-1. 編集から"Get My profile (V2)" および "Send Email" のステップを削除する
-1. 新しいステップで "コントロール" の "条件" を追加する
-1. 条件の値で、動的なコンテンツの "User" を指定し、"次の値を含む"、"\" という条件を設定する   
-   (Azure AD に関係ないローカル ユーザーの場合は、通知対象外とするため)
-1. "いいえの場合" セクションに "上司の取得 (V2)"のアクションを追加する
-　 (社内ユーザーの操作の場合、To に共有を行った社内ユーザー、CC のその上司を入れてメール通知するため)
-1. "User (UPN)" に動的なコンテンツでリスト列の [User] を追加する
-1. 続いて "Outlook" の "メールの送信 (V2)" のアクションを追加する
-1. 宛先に動的なコンテンツでリスト列の [User] を指定する
-1. 件名に"[EDLP Notification] ファイル書き出し操作"と入力する
-1. "Show advanced options" をクリックして、"CC" に動的なコンテンツで上司となる [Mail] を追加する
-1. 本文におおよそ以下の内容を記載する([] は動的なコンテンツでリスト列を参照する)   
+## 3. Setting up email notifications using Power Automate
+1. From the EndpointDLP list's Integrations menu, select Power Automate and select Create Flow.
+1. Select the "Send a customized email when a new SharePoint list item is added" flow and create it.
+1. Delete the "Get My Profile (V2)" and "Send Email" steps from Edit.
+1. Add a "Condition" to the "Control" section of the new step.
+1. Specify the dynamic content "User" as the condition value, and set the conditions to "Contains" and "\".
+(This applies to local processes unrelated to Azure AD.) (For users, this will exclude them from the notification.)
+1. Add the "Get Manager (V2)" action to the "If No" section.
+
+(For internal user operations, include the internal user who shared the file in the "To" field and their manager in the "CC" field to send an email notification.)
+1. Add the list column [User] in the "User (UPN)" field using dynamic content.
+1. Next, add the "Send Email (V2)" action for "Outlook."
+1. Specify the list column [User] in the "To" field using dynamic content.
+1. Enter "[EDLP Notification] File Export Operation" in the subject line.
+1. Click "Show advanced options" and add the manager [Mail] in the "CC" field using dynamic content.
+1. Include approximately the following content in the body of the email ([ ] refers to a list column in the dynamic content).
 ```
-ファイルの外部書き出しが行われました。    
-業務上必要な操作であることを確認してください。  
-ユーザー: [User]
-時間(UTC): [Time]
-書き出されたファイル: [Item]
-行われた操作: [Operation]
-操作可否: [EnforcementMode]
-DLPの一致
-DLP ポリシー: [PolicyName]
-DLP ルール: [RuleName]
-検出された機密情報:
+The file has been exported.
+Please confirm that this is a necessary business operation.
+User: [User]
+Time (UTC): [Time]
+Exported file: [Item]
+Operation: [Operation]
+Operation availability: [EnforcementMode]
+DLP match
+DLP policy: [PolicyName]
+DLP rule: [RuleName]
+Detected sensitive information:
 [SensitiveInfoTypeData]
 
-USB 書き出しの場合
-外部メディアの情報:
+For USB export
+External media information:
 [RemovableMediaDeviceAttributes]
 
-クラウドへのアップロードの場合
-アップロード先: [TargetDomain]
+For cloud upload
+Destination: [TargetDomain]
 ```
-1. 後ろに新しいステップを追加し、"項目の更新" のアクションを追加する
-1. サイトのアドレスで、"Customnotification" のサイトを指定し、リスト名で "EndpointDLP" を指定する
-1. ID を動的なコンテンツでリスト列の [ID] を指定する
-1. タイトルを動的なコンテンツでリスト列の [タイトル] を指定する
-1. "RMSEncrypted", "JitTriggered","Notified" の値を空欄にする
-1. "Notified" を "はい" に指定する
-1. フローを保存する
+1. Add a new step after the step and add an "Update Item" action.
+1. Specify the "CustomNotification" site for the site address and "EndpointDLP" for the list name.
+1. Specify the ID as the list column ID in the dynamic content.
+1. Specify the title as the list column Title in the dynamic content.
+1. Leave the values ​​for "RMSEncrypted", "JitTriggered", and "Notified" blank.
+1. Set "Notified" to Specify "Yes"
+1. Save the flow
 
-### 設定後の Power Automte フローの全体
-<img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/EDLPNotif03.png"/>    
+### The entire Power Automate flow after configuration
+<img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/EDLPNotif03.png"/>
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/EDLPNotif04.png"/>
 
-### 送信されるメール通知例
+### Example of an email notification sent
 <img src="https://github.com/YoshihiroIchinose/E5Comp/blob/main/img/EDLPNotif05.png"/>
-その他、Power Automate では、共有メールボックスを作成し、代理人として送信の権限を付与することで、共有メールボックスのアカウントを送信元としたメール通知も可能。
+In addition, in Power Automate, you can create a shared mailbox and grant "send on behalf" permissions to send email notifications from the shared mailbox account.

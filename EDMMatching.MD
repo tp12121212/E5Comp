@@ -1,151 +1,149 @@
-# 機密情報や Exact Data Match の動作に関して
-本ページで、Microsoft 365 環境における各種動作検証から、特に日本語環境でのカスタムの機密情報定義のマッチングや、Exact Data Match の仕組みについてまとめおきたい。
+# Regarding confidential information and Exact Data Match
+This page summarizes the results of various operational tests in the Microsoft 365 environment, particularly regarding matching of custom confidential information definitions in a Japanese environment, and the mechanism of Exact Data Match.
 
-## カスタム機密情報のマッチングについて
-正規表現やカスタムの機密情報のマッチングにおいては、テキスト抽出時点で元データに対しておおよそ以下のような下処理がなされている。
-- 全角英数、全角記号や全角スペースなどは、対応する半角英数や半角スペースに変換される
-- 半角カナは、全角カナに変換される
-- Word でのテキストの抽出においては、全角数字が全角文字に隣接している場合は、半角数字に変換されるだけではなく、間にスペースが挿入される
+## Regarding custom confidential information matching
+When matching regular expressions or custom confidential information, the following preprocessing is roughly performed on the original data at the time of text extraction.
+- Full-width alphanumeric characters, full-width symbols, and full-width spaces are converted to the corresponding half-width alphanumeric characters and half-width spaces.
+- Half-width kana characters are converted to full-width kana characters.
+- When extracting text in Word, if a full-width number is adjacent to a full-width character, not only is it converted to a half-width number, but a space is inserted between them.
 
-|  元データ  | 注釈 |BOM あり UTF-8 の .txt 形式でのテキスト抽出 | .docx 形式の Word でのテキスト抽出 |
+| Original Data | Annotations | Text Extraction in UTF-8 .txt Format with BOM | Text Extraction in Word in .docx Format |
 | ---- | ---- | ---- | ---- |
-|  東京2020  | 半角数字はそのまま |  東京2020  | 東京2020 |
-|  東京２０２０  | 全角数字は半角数字に変換 | 東京2020  | 東京 2020 |
-| ABC分析 |  半角英字はそのまま | ABC分析 | ABC分析 |
-| ＡＢＣ分析 |  全角英字は半角英字に変換 |ABC分析 | ABC分析 |
-| ﾄｳｷｮｳﾄｼﾅｶﾞﾜｸﾉﾁｬﾝﾋﾟｵﾝ | 半角カナは全角カナに変換 | トウキョウトシナガワクノチャンピオン | トウキョウトシナガワクノチャンピオン |
-| "　" | 全角スペースは半角スペースに変換される | " " | " " |
-| 「」”’‘ | これらの全角記号はそのまま | 「」”’‘ | 「」”’‘ |
-| ！＃＄％＆（）－＾￥＠；：，．／＝～｜‘｛＋＊｝＜＞？＿ | これらの全角記号は半角に変換される | !#$%&()-^¥@;:,./=~\|‘{+*}<>?_ | !#$%&()-^¥@;:,./=~\|‘{+*}<>?_ |
+| Tokyo 2020 | Half-width Numbers as Is | Tokyo 2020 | Tokyo 2020 |
+| Tokyo 2020 | Full-width Numbers Converted to Half-width Numbers | Tokyo 2020 | Tokyo 2020 |
+| ABC Analysis | Half-width Alphabet Characters as Is | ABC Analysis | ABC Analysis |
+| ABC Analysis | Full-width Alphabet Characters Converted to Half-width Alphabet Characters | ABC Analysis | ABC Analysis |
+| Tokyo Toshinagawa Champion | Half-width kana converted to full-width kana | Tokyo Toshinagawa Champion | Tokyo Toshinagawa Champion |
+| "　" | Full-width spaces converted to half-width spaces | " " | " " |
+| """' | These full-width symbols remain unchanged | """'' | """'' |
+| !＃＄％＆（）－＾￥＠；：，。／＝～｜‘｛＋＊＜＞？＿ | These full-width symbols converted to half-width | !#$%&()-^¥@;:,./=~\|‘{+*}<>?_ | !#$%&()-^¥@;:,./=~\|‘{+*}<>?_ |
 
-## ハイフンの変換
-| 文字 | Unicode Code Point | Description | BOM あり UTF-8 の .txt 形式でのテキスト抽出 | .docx 形式の Word でのテキスト抽出 | クレジットカードの SIT でハイフンとして扱われるか? |
+## Hyphen conversion
+| Character | Unicode Code Point | Description | UTF-8 .txt with BOM Text extraction in .docx format | Text extraction in Word | Treated as a hyphen in credit card SIT? |
 |:---:|---:|---:|:---|:---:|:---:|
-| - | 2D | Hyphen-Minus | - (2D 半角ハイフンに変換) | - (2D 半角ハイフンに変換) | Yes |
-| ﹣ | FE63 | Small Hyphen-Minus | - (2D 半角ハイフンに変換) | - (2D 半角ハイフンに変換) | Yes |
-| － | FF0D | Fullwidth Hyphen-Minus | - (2D 半角ハイフンに変換) | - (2D 半角ハイフンに変換) | Yes |
-| ‐ | 2010 | Another Hyphen | ‐ (2010 変わらず) | ‐ (2010 変わらず) | No |
-| ‑ | 2011 | Non-Breaking Hyphen | ‐ (2010 に変換) | ‐ (2010 に変換) | No |
-| ‒ | 2012 | Figure Dash | ‒ (2012 変わらず)| ‒ (2012 変わらず) | No |
-| – | 2013 | En Dash | – (2013 変わらず)|  – (2013 変わらず) | No |
-| — | 2014 | Em Dash | — (2014 変わらず)| — (2014 変わらず) | No |
-| ― | 2015 | Horizontal Bar | ― (2015 変わらず) | ― (2015 変わらず) | No |
-| ⁃ | 2043 | Hyphen Bullet | ⁃ (2043 変わらず)| ⁃ (2043 変わらず) | No |
-| − | 2212 | Minus Sign | − (2212 変わらず)| − (2212 変わらず) | No |
-| ー | 30FC | Katakana-Hiragana Prolonged Sound Mark | ー (30FC 変わらず) |ー (30FC 変わらず) | No |
-| ｰ | FF70 | Halfwidth Katakana-Hiragana Prolonged Sound Mark | ー (30FC に変換)|ー (30FC に変換) | No |
+| - | 2D | Hyphen-Minus | - (Convert to 2D half-width hyphen) | - (Convert to 2D half-width hyphen) | Yes |
+| ﹣ | FE63 | Small Hyphen-Minus | - (Convert to 2D half-width hyphen) | - (Convert to 2D half-width hyphen) | Yes |
+| － | FF0D | Fullwidth Hyphen-Minus | - (Convert to 2D half-width hyphen) | - (Convert to 2D half-width hyphen) | Yes |
+| - | 2010 | Another Hyphen | - (2010 unchanged) | - (2010 unchanged) | No |
+| ‑ | 2011 | Non-Breaking Hyphen | ‐ (Convert to 2010) | ‐ (Convert to 2010) | No |
+| ‒ | 2012 | Figure Dash | ‐ (2012 unchanged) | ‐ (2012 unchanged) | No |
+| – | 2013 | En Dash | ‐ (2013 unchanged) | ‐ (2013 unchanged) | No |
+| — | 2014 | Em Dash | ‐ (2014 unchanged) | ‐ (2014 unchanged) | No |
+| ― | 2015 | Horizontal Bar | ― (2015 unchanged) | ― (2015 unchanged) | No |
+| ⁃ | 2043 | Hyphen Bullet | ⁃ (2043 unchanged) | ⁃ (2043 unchanged) | No |
+| − | 2212 | Minus Sign | − (2212 unchanged) | − (2212 unchanged) | No |
+| − | 30FC | Katakana-Hiragana Prolonged Sound Mark | − (30FC unchanged) | − (30FC unchanged) | No |
+| − | FF70 | Halfwidth Katakana-Hiragana Prolonged Sound Mark | − (Convert to 30FC) | − (Convert to 30FC) | No |
 
-上記を踏まえると Microsoft 365 内での上記ハイフン一文字は、以下の正規表現で見つけられることになる。
+Based on the above, the above single hyphen character can be found in Microsoft 365 using the following regular expression:
 ```
 [-|\x{2010}-\x{2015}|\x{2043}|\x{2212}|\x{30FC}]
 ```
 
-
-これは以下のような Exchange Online 上の Test-TextExtraction を用いて確認することができる。
-なお、Exchange Online では、BOM なし UTF-8 のテキストや、ANSI(Shift-JIS) 形式のテキストには対応しないため、これらの形式のテキストを指定した場合は解析できないというエラーとなる。(2022/05/23 時点) また SharePoint Online や Endpoint DLP ではエンジンが異なるため、多少動作も異なる可能性あり。
+This can be confirmed using the Test-TextExtraction command on Exchange Online, as shown below.
+Note that Exchange Online uses UTF-8 without BOM. This tool does not support text in ASCII or ANSI (Shift-JIS) format. Specifying text in these formats will result in an error indicating that the tool cannot parse the document. (As of May 23, 2022) Also, because SharePoint Online and Endpoint DLP use different engines, behavior may differ slightly.
 ```
 Connect-ExchangeOnline
-$content = Test-TextExtraction -FileData ([System.IO.File]::ReadAllBytes("E:\WorkData\Comp\テストデータ.docx"))
+$content = Test-TextExtraction -FileData ([System.IO.File]::ReadAllBytes("E:\WorkData\Comp\TestData.docx"))
 $content.ExtractedResults[0].ExtractedStreamText
 ```
-## 正規表現やキーワードの指定の注意事項
-上記のように、テキスト抽出時点で、全角英数・全角記号は、半角英数・半角記号に変換され、半角カナも全角カナに変換されるため、カスタムの機密情報での正規表現やキーワードを用いた定義においては、
-全角の英数、全角の記号、半角カナなどの存在は意識する必要がなく、半角の英数、半角の記号、全角カナを用いた定義をしておくだけで、漏れなくマッチできるような動作となっている。
-ただ、東京２０２０は、Word ファイルにおいて、東京 2020 と抽出されていたりするので、全角数字が半角数字に変換される際、半角スペースが入りうる可能性は考慮しておく必要がある。
+## Notes on Specifying Regular Expressions and Keywords
+As mentioned above, full-width alphanumeric characters and symbols are converted to half-width alphanumeric characters and symbols, and half-width kana characters are also converted to full-width kana characters during text extraction. Therefore, when defining custom confidential information using regular expressions or keywords,
+you do not need to be aware of the existence of full-width alphanumeric characters, full-width symbols, or half-width kana characters. Simply defining the characters using half-width alphanumeric characters, half-width symbols, and full-width kana characters will ensure complete matching.
+However, since "Tokyo 2020" is often extracted as "Tokyo 2020" in Word files, it is important to consider the possibility of half-width spaces being inserted when full-width numbers are converted to half-width numbers.
 
-## EDM データの準備およびハッシュ生成について
-EDM のハッシュ生成およびデータ取込み時には、全角英数が半角英数と同様に扱われたり、半角カナが全角カナに変換されたりすることがないため、取り込むデータの全角英数および全角スペースは、すべて事前に半角英数および半角スペースに変換しておき、同様に半角カナも全角カナに変換しておく必要がある。   
-[参考 EDM のデータ アップロード用に全角英数字・記号を半角に変換するスクリプト。](https://github.com/YoshihiroIchinose/E5Comp/blob/main/EDM_Preprocess.md)   
-またスペースが入るような複数の単語からなるキーワードは、主要素の検知としては利用可能なものの、補助要素としてそのままの検出は現状不可。後述するように主要素と同様に前段となるカスタムの機密情報の定義が必要。    
-以下のテスト結果のように、スキーマの設定で、半角カナを無視する設定や、半角英字の大文字小文字を同一視することは可能だが、全角英数の半角変換、全角スペースの半角スペース変換などは行われない。
+## About EDM Data Preparation and Hash Generation
+EDM During hash generation and data import, full-width alphanumeric characters are not treated the same as half-width alphanumeric characters, and half-width kana characters are not converted to full-width kana characters. Therefore, all full-width alphanumeric characters and full-width spaces in the imported data must be converted to half-width alphanumeric characters and half-width spaces in advance, and half-width kana characters must also be converted to full-width kana.
+[Reference: Script to convert full-width alphanumeric characters and symbols to half-width characters for EDM data upload.](https://github.com/YoshihiroIchinose/E5Comp/blob/main/EDM_Preprocess.md)
+Furthermore, while keywords consisting of multiple words with spaces can be used to detect primary elements, they cannot currently be detected as secondary elements. As described below, a custom confidential information definition is required as a prerequisite, just like primary elements. As shown in the test results below, you can set the schema to ignore half-width kana characters and treat half-width English characters as case-insensitive, but it does not convert full-width English characters to half-width characters or full-width spaces to half-width spaces.
 ```
-スキーマ
+Schema
 caseInsensitive="true"
 ignoredDelimiters=" ,',-,.,_,}​​​​​​​​,{​​​​​​​​,/,\,!,+,(,)"
 
-確認方法
-EdmUploadAgent.exe /CreateHash で取り込むデータのハッシュ生成だけ実施し、表記の違いによりハッシュが異なるか、同一のものとなるかテスト。
+How to verify
+Generate a hash of the data to be imported using EdmUploadAgent.exe /CreateHash, and test whether the hash is different or identical depending on the notation.
 
-〇スキーマの設定で半角スペースは無視できる
-Hash("山田 A 太郎") = Hash("山田A太郎")
+〇 Half-width spaces can be ignored in the schema settings.
+Hash("Yamada A Taro") = Hash("Yamada A Taro")
 
-〇スキーマの設定で大文字小文字の区別をなしにできる
-Hash("山田A太郎") = Hash("山田a太郎")
+〇 Case insensitivity can be ignored in the schema settings.
+Hash("Yamada A Taro") = Hash("Yamada A Taro")
 
-×半角スペースと全角スペースは同一視されない
-(ignoredDelimitersに追加しても全角スペースは無視されない)
-Hash("山田 A 太郎") ≠ Hash("山田　A　太郎")
-Hash("山田 太郎") ≠ Hash("山田　太郎")
+× Half-width and full-width spaces are not considered equivalent.
+(Full-width spaces are not ignored even if added to ignoredDelimiters.)
+Hash("Yamada A Taro") ≠ Hash("Yamada A Taro")
+Hash("Yamada Taro") ≠ Hash("Yamada Taro")
 
-×半角英数と全角英数は同一視されない
-Hash("山田A太郎")≠ Hash("山田Ａ太郎")
-Hash("山田a太郎")≠ Hash("山田ａ太郎")
-Hash("山田1太郎") ≠ Hash("山田１太郎")
+× Half-width and full-width alphanumeric characters are not considered equivalent.
+Hash("Yamada A Taro") ≠ Hash("Yamada A Taro")
+Hash("Yamada A Taro") ≠ Hash("Yamada A Taro")
+Hash("Yamada 1 Taro") ≠ Hash("Yamada 1 Taro")
 
-×半角カナと全角カナは同一視されない
-Hash("サトウタカシ") ≠ Hash("ｻﾄｳﾀｶｼ")
+× Half-width and full-width kana characters are not considered equivalent.
+Hash("Sato Takashi") ≠ Hash("Sato Takashi")
 ```
 
-## Exact Data Match の動作について
-Exact Data Match では以下の 3 段階の定義に従って、検出および信頼度判定がなされる。
-- A. Exact Data Match の主要素のマッチング候補となるテキストを抜き出す機密情報の種類の定義   
-     正規表現を使ってカスタムの定義や、クレジットカード番号、マイナンバーなどの既存定義済みの機密情報も利用可能
-- B. Exact Data Match としての検索可能な主要素のハッシュ
-- C. Exact Data Match として補助要素なるハッシュ
+## About Exact Data Match
+Exact Data Match uses the following three methods: Detection and confidence assessment are performed according to the definition of each step.
+- A. Define the type of sensitive information to extract text that can be matched with the main element of Exact Data Match.
 
+Custom definitions can be made using regular expressions, or predefined sensitive information such as credit card numbers and My Number can be used.
+- B. Hash of the searchable main element as Exact Data Match.
+- C. Hash of the auxiliary element as Exact Data Match.
 
-### 上記の定義に従い、Exact Data Match の動作としては以下となっている。
-1. 対象のデータから、全角英数・全角記号は、半角英数・半角記号に変換し、半角カナも全角カナに変換してテキストを抽出
-2. A 機密情報の種類を使って対象となるパターンを見つける   
-   この A のパターンの検出の際、A の定義でキーワードなどの補助要素を用いて、対象をフィルタリングすることも可能。   
-   その場合でも、 Exact Data Match の主要素のマッチングに使われるテキストは、A の主要素のみが用いられる。
-3. 見つかったパターンから Exact Data Match のスキーマ定義に従って、スペースやハイフンなど、無視する文字を削除してハッシュを生成
-4. B で取り込んだ主要素のハッシュと 3 のハッシュを見比べて同じハッシュであれば、主要素のマッチング成功とする
-5. C の補助要素のマッチングも必要な場合、主要素が見つかった前後の文字列を調査することになるが、   
-前後の文字列をワードブレークし、ワードブレークされた単語ごとにハッシュを生成
-6. C の補助要素のハッシュと 5 のハッシュを見比べてハッシュの一致があれば、補助要素のマッチング成功とする
-7. Exact Data Match の機密情報の定義に従って、主要素と補助要素の検知結果に従った信頼度で検知結果を返す
+### Based on the above definition, Exact Data Match works as follows:
 
-### この動作における注意点・考慮事項は以下の通り。
-- マッチング対処となるテキストでは、通常の機密情報の検出同様に、全角英数・全角記号などは半角に変換され、   
-また半角カナなどは全角カナに変換されるため、Exact Data Match においても、半角英数・半角記号、全角カナだけを   
-意識してデータを用意していればよい。
-- A の前段階の機密情報の検出においては、EDM のスキーマで定義する無視する記号は考慮されていないため、   
-  正規表現では、ハイフン、半角スペースがあるものやないもの 双方意識したパターンを用意しておく必要がある。
-- 機密情報の検出は、DLP ポリシーの有無に関係なく、機密情報の種類を定義した段階で、Microsoft 365 全体で動作し、   
-  機密情報の把握が行われるため、A の定義においては、広範なパターンのテキストを対象とするような内容は避けた方がよい。   
-  対象が汎用的すぎると、処理がスキップされてしまう可能性あり。A の定義においても補助要素を追加するなどして、   
-  対象を絞り込むことも有効。
-- 半角カナは、全角カナに変換してマッチングが行われるが、半角カナでは、濁音・半濁音が 1 文字としてカウントされ、   
-  全角カナへの変換の際、文字の位置が合わなくなることもあり、通常の機密情報の定義で、全角カナのキーワードで、   
-  半角カナをマッチングすることは問題がないが、Eact Data Match で半角カナを対象とした場合、   
-濁音・半濁音を含む半角カナが現状ヒットしない。(2022/05/23 時点)   
-- Exact Data Match の補助要素のマッチングにおいては、ハッシュを取り込む際には、ワードブレークを行わず、   
-  1 カラム 1 ハッシュとして取り込むものの、補助要素の走査の際には、日本語の文書をワードブレークした上で、
-  ハッシュ比較を行う。そのため、ワードブレークされうる漢字 3 文字などの補助要素は、Exact Data Match では見つからない。(2022/05/23 時点)   
-     
-  補助要素として見つかるものの例: 会社員、佐藤、隆、鈴木   
-  補助要素として見つからないものの例: 伊集院、小鳥遊、会計士   
-     
-  これは、本文では伊集/院、小鳥/遊、会計/士 などのように複数の単語にワードブレークされ   
-  ワードブレークされた単語ごとにハッシュが生成され比較されるが、   
-  取り込んだハッシュは、"伊集院"、"小鳥遊"、"会計士"のものであり、    
-  単語の区切りが一致しなたいめ同一のハッシュが見つからず、結果補助要素が見つからないという判定となるからである。   
-  Exact Data Match の検索可能な列・主要素の検知においては、    
-  A の前段階の機密情報の定義に従った正規用表現で対象となるテキストが抜き出されて、    
-  ハッシュが生成され比較されるので、ワードブレークには依存せずこのような問題は見られない。
-  
-  この問題への対処として、上の5のステップで、ワードブレークした単語でハッシュ化するのではなく、   
-  別途補助要素に対して、キーワード辞書、正規表現などでパターンを定義し、見つかったパターンで   
-  ハッシュを生成し、見比べることでの対応が可能。ただし、PowerShell による操作が必要で、   
-  EDM の機密情報定義の XML をダウンロードし、   
-  主要素の idMatch のタグと同様に、補助要素の Match のタグにも、   
-  classification で前段となるカスタムの機密情報の定義を指定した上でアップロードし直す。    
-  詳細は[こちら](https://microsoft.github.io/ComplianceCxE/resources/files/Deploying%20EDM%20for%20accurate%20classification%20v2%20(2).pdf)の P.23 を参照のこと。
-```
+1. From the target data, full-width alphanumeric characters and full-width symbols are converted to half-width alphanumeric characters and half-width symbols, and half-width kana characters are converted to full-width kana to extract text.
+
+2. Use the type of sensitive information A to find the target pattern.
+
+When detecting this pattern A, you can also filter the target using auxiliary elements such as keywords in the definition A.
+Even in this case, only the main element of A is used to match the main element of Exact Data Match.
+
+3. From the found pattern, Exact Data Match is performed. According to the schema definition, remove ignored characters such as spaces and hyphens to generate a hash.
+4. Compare the hash of the main element captured in B with the hash of 3. If they are the same, the main element is successfully matched.
+5. If matching of the auxiliary element C is also required, the strings before and after the main element are examined.
+The strings before and after are word-broken and a hash is generated for each broken word.
+6. Compare the hash of the auxiliary element C with the hash of 5. If the hashes match, the auxiliary element is successfully matched.
+7. According to the confidential information definition of Exact Data Match, the detection result is returned with a confidence level based on the detection results of the main and auxiliary elements.
+
+### The following points and considerations apply to this operation:
+- In the text to be matched, full-width alphanumeric characters and full-width symbols are converted to half-width characters, as in normal confidential information detection,
+and half-width kana characters are also converted to full-width kana. Therefore, even in Exact Data Match, half-width alphanumeric characters, half-width symbols, and full-width kana characters are converted to full-width characters.You only need to prepare the data with hyphens and spaces in mind.
+- The detection of confidential information in the previous step, step A, does not take into account the ignored symbols defined in the EDM schema,
+so you need to prepare regular expression patterns that take into account both hyphens and spaces and those that do not.
+- Sensitive information detection works across Microsoft 365 once you define the type of sensitive information, regardless of whether a DLP policy is in place,
+and confidential information is identified. Therefore, it is best to avoid defining A with content that targets broad patterns of text.
+If the target is too general, processing may be skipped. It is also effective to narrow the target by adding auxiliary elements to the definition of A,
+for example. - Half-width kana characters are converted to full-width kana characters for matching, but in half-width kana, voiced and semi-voiced consonants are counted as one character.
+When converting to full-width kana, the position of the characters may not match.
+There is no problem matching half-width kana characters with full-width kana keywords in normal confidential information definitions. However, when targeting half-width kana characters with Exact Data Match, half-width kana characters containing voiced and semi-voiced consonants currently do not find matches. (As of May 23, 2022)
+- When matching auxiliary elements in Exact Data Match, word breaking is not performed when importing hashes, and one hash is imported per column. However, when scanning auxiliary elements, Japanese documents are word-broken and the hash comparison is performed.
+As a result, auxiliary elements such as three-character kanji characters that can be word-broken will not be found with Exact Data Match. (As of May 23, 2022)
+
+Examples of elements found as auxiliary elements: company employee, Sato, Takashi, Suzuki
+
+Examples of elements not found as auxiliary elements: Ijuin, Takanashi, accountant
+
+This is because the text is broken into multiple words, such as Iju/in, Takanashi/yu, and accountant/shi.
+
+A hash is generated and compared for each broken word,
+
+but the imported hashes are for "Ijuin," "Takanashi," and "accountant."
+
+Since the word boundaries do not match, an identical hash cannot be found, resulting in a determination that the auxiliary element is not found.
+
+When detecting searchable columns and main elements in Exact Data Match,
+
+the target text is extracted using regular expressions according to the confidential information definition in the previous step, A,
+
+and a hash is generated and compared. This problem does not occur because it does not rely on word breaking.
+
+To address this issue, instead of hashing using word-broken words in step 5 above, you can define patterns for the auxiliary elements separately using keyword dictionaries, regular expressions, etc., and generate hashes using the patterns found. This can be done by comparing the results. However, this requires PowerShell operations. Download the EDM confidential information definition XML, specify the preceding custom confidential information definition in the Match tag of the auxiliary element, as well as the idMatch tag of the main element, and then re-upload it. For details, see page 23 of [here](https://microsoft.github.io/ComplianceCxE/resources/files/Deploying%20EDM%20for%20accurate%20classification%20v2%20(2).pdf). ````
 Connect-IPPSSession
 $def = Get-DlpSensitiveInformationTypeRulePackage -Identity "EDM Customer DB"
 [System.IO.File]::WriteAllBytes('C:\EDM\EDM Customer DB.xml', $def.SerializedClassificationRuleCollection)
-(XML を編集)
+(Edit XML)
 Set-DlpSensitiveInformationTypeRulePackage -FileData ([System.IO.File]::ReadAllBytes('C:\EDM\EDM Customer DB.xml'))
-```
+````

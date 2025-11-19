@@ -1,21 +1,21 @@
-# Office 365 Management API を利用した監査ログの取得について
-Search-UnifiedAuditLog よりも大規模に対応する Office 365 Management API を利用した PowerShell からの Office 365 監査ログの取得サンプルです。事前準備として、[こちら](https://docs.microsoft.com/ja-jp/office/office-365-management-api/get-started-with-office-365-management-apis)の設定に従い、API を利用するための、アプリの登録、権限の設定、Client Secret の取得を事前に行っておく必要があります。Office 365 Management API を利用してログを取得する場合、細かな抽出条件を指定することはできず、Office 365 の監査ログがカテゴリ分けされた、5 種類のログの中から一つを選択して、特定の時間範囲内のログを取得することになります。また仕組みとしては、これら 5 種類のログ毎に Subscription を開始すると、5 種類のログ毎に、ある程度の数のログがまとまった BLOB ファイルが順次溜まって行きます。最大 7 日前までに遡って、一回のクエリで最大 24 時間の範囲のログの BLOB の URL が取得でき、その URL からログの中身が取得できます。ログの取得そのものは、以下の 1-5 の手順で完了し、CSV 出力するために、6-9 の手順でログ全体の中から 1 階層目の列を全種類取得し、ログ アイテムごとに全列の値を出力するようにしています。10 手順はおまけでテーブル変換した .xlsx に変換する手順を入れています。
+# Retrieving Audit Logs Using the Office 365 Management API
+This is a sample of retrieving Office 365 audit logs from PowerShell using the Office 365 Management API, which supports a larger scale than Search-UnifiedAuditLog. As a preliminary step, you must register an app, set permissions, and obtain a Client Secret to use the API, as described here. When retrieving logs using the Office 365 Management API, you cannot specify detailed filtering criteria. Instead, you select one of five categories of Office 365 audit logs and retrieve logs within a specific time range. When you start a subscription for each of these five types of logs, a BLOB file containing a certain number of logs for each of the five types is gradually accumulated. A single query can retrieve the URL for a log BLOB covering a maximum 24-hour period going back up to seven days, and the contents of the log can be retrieved from that URL. The log retrieval itself is completed in steps 1-5 below, and to output to CSV, steps 6-9 retrieve all types of first-level columns from the entire log and output the values ​​of all columns for each log item. Step 10 includes an extra step for converting the data to a table in .xlsx format.
 
-1. Application ID と Client Secret を使ってアクセス トークンを取得する (x1 Post 要求)
-2. 取得したログの Subscription が有効か確認する (x1 Get 要求)
-3. 有効でなければ Suscription を開始する (x1 Post 要求)
-4. 対象となる日付の期間を指定し、複数のログの BLOB ファイルの URL を取得する (x1 Get 要求だが、対象が多いとページ分割され複数回の可能性あり)
-5. 取得した BLOB ファイルの URL に一つずつアクセスし中身を取得して連結する (対象の BLOB ファイルごとに GET 要求)
-6. CSV で出力するために Operation の種類ごとに最初の 1 つ目のアイテムから含まれている列の種類をすべて把握する
-7. 取得したログを CSV で出力する際、値が省略されないように、ConvertTo-Json の処理を入れた Script Block を用意する
-8. 取得したデータを CSV で出力するために、1 アイテムごとにログ全体の全列の値を出力
-9. 取得したデータを CSV で出力する
-10. CSV 出力したファイルを、テーブル変換した .xlsx として保存しなおす
+1. Obtain an access token using the Application ID and Client Secret (x1 Post request)
+2. Check whether the subscription for the retrieved logs is valid (x1 Get request)
+3. If not valid, start the subscription (x1 Post request)
+4. Specify the target date range and obtain the URLs of the BLOB files for multiple logs (x1 Get request, but if there are many logs, it may be paginated and require multiple requests)
+5. Access the URLs of the retrieved BLOB files one by one, retrieve their contents, and concatenate them (a GET request for each target BLOB file)
+6. To output the retrieved logs in CSV format, identify all column types contained in the first item for each operation type.
+7. When outputting the retrieved logs in CSV format, prepare a script block with a ConvertTo-Json call to ensure no values ​​are omitted.
+8. To output the retrieved data in CSV format, output all column values ​​for the entire log for each item.
+9. Output the retrieved data in CSV format.
+10. Convert the CSV output file into a table. Save it as .xlsx.
 
-なお 1 分間に、2,000 を超える要求がある場合には、規模によってリクエストがエラーになることがあります。詳細は[こちら](https://docs.microsoft.com/ja-jp/office/office-365-management-api/office-365-management-activity-api-reference#api-throttling)。
+Note that if there are more than 2,000 requests per minute, requests may result in errors depending on the scale. For more information, see [here](https://docs.microsoft.com/ja-jp/office/office-365-management-api/office-365-management-activity-api-reference#api-throttling).
 
-# DLP.ALL について
-こちらの [Blog](https://techcommunity.microsoft.com/t5/security-compliance-and-identity/microsoft-365-compliance-audit-log-activities-via-o365/ba-p/2957297) によると、DLP.ALL には以下のログが記録され、Audit.Exchange や、Audit.SharePoint、Audit.General で記録されるものと、重複しています。例えば、DLPEndpoint のログは、DLP.ALL からも、Audit.General からも取得できます。
+#About DLP.ALL
+According to this [Blog](https://techcommunity.microsoft.com/t5/security-compliance-and-identity/microsoft-365-compliance-audit-log-activities-via-o365/ba-p/2957297), the following logs are recorded in DLP.ALL, which overlap with those recorded in Audit.Exchange, Audit.SharePoint, and Audit.General. For example, DLPEndpoint logs can be obtained from both DLP.ALL and Audit.General.
 
 |RecordType|Name|
 | --- | --- |
@@ -26,7 +26,7 @@ Search-UnifiedAuditLog よりも大規模に対応する Office 365 Management A
 |99|OnPremisesFileShareScannerDlp|
 |100|OnPremisesSharePointScannerDlp|
 
-# PowerShell のサンプル コード
+# PowerShell sample code
 ````
 $AppClientID = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx"
 $ClientSecretValue = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -37,94 +37,93 @@ $OutputPath = "C:\Users\user01\Desktop\MGMTLog\"
 $APIResource ="https://manage.office.com"
 $BaseURI = "$APIResource/api/v1.0/$tenantGUID/activity/feed/subscriptions"
 
-#以下の 5 種類の中からいずれか一つを選択
+#Select one of the following five types
 $Subscription = "Audit.General"
 #$Subscription = "Audit.AzureActiveDirectory"
 #$Subscription = "Audit.Exchange"
 #$Subscription = "Audit.SharePoint"
 #$Subscription = "DLP.All"
 
-
 $today=(Get-Date)
-#ログは、7日前の中で、最大 24 時間の範囲で取得できる
-#ローカルの日時で1-6 日前のデータを1日分取得する
+#Logs can be retrieved up to 24 hours within the last 7 days.
+#Retrieve one day's worth of data from 1-6 days ago in local time.
 $daysdiff=3
 $end=$today.AddDays(-$daysdiff+1).Date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss")
 $start = $today.AddDays(-$daysdiff).Date.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss")
 $filter="startTime="+$start+"&endTime="+$end
 $filename = ($OutputPath + $Subscription + "_" + $today.AddDays(-$daysdiff).Date.ToString("yyyy-MM-dd") + ".csv")
 
-# 1.アクセス トークンの取得
+# 1. Obtain an access token
 $body = @{grant_type="client_credentials";resource=$APIResource;client_id=$AppClientID;client_secret=$ClientSecretValue}
 try{
-	$oauth = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenantdomain/oauth2/token?api-version=1.0" -Body $body -ErrorAction Stop
-	$OfficeToken = @{'Authorization'="$($oauth.token_type) $($oauth.access_token)"}
+$oauth = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenantdomain/oauth2/token?api-version=1.0" -Body $body -ErrorAction Stop
+$OfficeToken = @{'Authorization'="$($oauth.token_type) $($oauth.access_token)"}
 }
 catch {
-    	write-host -ForegroundColor Red "Invoke-RestMethod failed." + $error[0]
-    	exit
+write-host -ForegroundColor Red "Invoke-RestMethod failed." + $error[0]
+exit
 }
 
-# 2.サブスクリプションの確認
+# 2. Check subscription
 $subs = Invoke-WebRequest -Headers $OfficeToken -Uri "$BaseURI/list" -UseBasicParsing |ConvertFrom-Json
 $enabled=$false
 foreach($sub in $subs){
-	if($sub.ContentType.ToLower() -eq $Subscription.ToLower() -and $sub.Status -eq "enabled"){$enabled=$true}
+if($sub.ContentType.ToLower() -eq $Subscription.ToLower() -and $sub.Status -eq "enabled"){$enabled=$true}
 }
 
-# 3.サブスクリプションが有効でなければ作成
+# 3. Create subscription if not enabled
 if(!$enabled){
-	Invoke-WebRequest -Method Post -Headers $OfficeToken -Uri "$BaseURI/start?contentType=$Subscription" -UseBasicParsing -ErrorAction Stop
+Invoke-WebRequest -Method Post -Headers $OfficeToken -Uri "$BaseURI/start?contentType=$Subscription" -UseBasicParsing -ErrorAction Stop
 }
 
-#4.対象となる日付の期間を指定し、複数のログの BLOB ファイルの URL を取得する
+#4. Specify the target date range and obtain the URLs of multiple log BLOB files.
 $output=""
 $next="$BaseURI/content?contentType=$Subscription&PublisherIdentifier=$TenantGUID&$filter"
 while ($next){
-	$repsonse=Invoke-WebRequest -Headers $OfficeToken -Uri $next -UseBasicParsing
-	$output += $repsonse.Content
-	$next = $response.Headers.NextPageUri
+$repsonse=Invoke-WebRequest -Headers $OfficeToken -Uri $next -UseBasicParsing
+$output += $repsonse.Content
+$next = $response.Headers.NextPageUri
 }
 $uris = (ConvertFrom-Json $output).contentUri
 
-#5.取得した BLOB ファイルの URL に一つずつアクセスし中身を取得して連結する
+#5. Access the URLs of the retrieved BLOB files one by one, retrieve their contents, and concatenate them.
 $Logdata=@()
 foreach($uri in $uris){
-	$Logdata+= Invoke-RestMethod -Uri $uri -Headers $Officetoken
+$Logdata+= Invoke-RestMethod -Uri $uri -Headers $Officetoken
 }
 
-#6.CSV で出力するために Operation の種類ごとに最初の 1 つ目のアイテムから含まれている列の種類をすべて把握する
+#6. Extract the first 1 for each operation type to output in CSV format. Identify all column types contained in the first item.
 $OperationTypes=$Logdata|Group-Object Operation
 $FieldName=@()
 foreach($Operation in $OperationTypes){
-    $FieldsinLog=$Operation.Group[0]|get-member -type NoteProperty
-    foreach($f in $FieldsinLog){
-      if(!$FieldName.Contains($f.Name)) { $FieldName+=$f.Name}
-    }
+$FieldsinLog=$Operation.Group[0]|get-member -type NoteProperty
+foreach($f in $FieldsinLog){
+if(!$FieldName.Contains($f.Name)) { $FieldName+=$f.Name}
+}
 }
 
-#7.取得したログを CSV で出力する際、値が省略されないように、ConvertTo-Json の処理を入れた Script Block を用意する
+#7. When outputting the retrieved log to CSV, prepare a script block with a ConvertTo-Json operation to ensure values ​​are not omitted.
 $Fields=@()
 foreach($f in $FieldName){
-$sb=[scriptblock]::Create('$att=$d.'+$f+';if($att.GetType().Name -eq "Object[]" -or $att.GetType().Name -eq "PSCustomObject"){ConvertTo-Json -Compress -Depth 10 $att} else {$att}')        
+$sb=[scriptblock]::Create('$att=$d.'+$f+';if($att.GetType().Name -eq "Object[]" -or $att.GetType().Name -eq "PSCustomObject"){ConvertTo-Json -Compress -Depth 10 $att} else {$att}')
 $Fields+=@{Name=$f;Expression=$sb}
 }
 
-#取得したデータを CSV で出力するために、1 アイテムごとにログ全体の全列の値を出力
+#To output retrieved data in CSV format, output all column values ​​for the entire log for each item.
 $csv=@();
 foreach($d in $Logdata){
-    $output=$d|Select-Object -Property $Fields
-    $csv+=$output
- }
+$output=$d|Select-Object -Property $Fields
+$csv+=$output
+}
 
-#9.取得したデータを CSV で出力する
+#9. Output retrieved data in CSV format
 $csv|Export-Csv -Path $filename -NoTypeInformation -Encoding UTF8
 
-#10.CSV 出力したファイルを、テーブル変換した .xlsx として保存しなおす
+#10. Convert the CSV output file to a table in .xlsx format. Save it as
 $excel = new-Object -com excel.application
 $excel.visible = $false
 $book = $excel.Workbooks.open($filename)
-$book.ActiveSheet.ListObjects.Add(1,$book.ActiveSheet.Range("A1").CurrentRegion ,$null,1).Name = "テーブル1"
+$book.ActiveSheet.ListObjects.Add(1,$book.ActiveSheet.Range("A1").CurrentRegion ,$null,1).Name = "Table1"
 $book.SaveAs($filename.Replace(".csv",".xlsx"),51)
 $book.close()
 $excel.quit()
